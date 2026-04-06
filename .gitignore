@@ -1,0 +1,44 @@
+# === Python 관련 ===
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+*.pyc
+
+# === 가상환경 ===
+venv/
+env/
+ENV/
+bin/
+lib/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.installed.cfg
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+
+# === 환경 변수 및 보안 ===
+.env
+.flaskenv
+*.env.local
+*.env.dev
+*.env.prod
+
+# === 데이터베이스 ===
+
+
+# === IDE 및 에디터 설정 ===
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# === 운영체제 임시 파일 ===
+.DS_Store
+Thumbs.db
