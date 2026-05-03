@@ -1,0 +1,19 @@
+import uuid
+from sqlalchemy import Column, String, Integer, Date, DateTime, func
+from sqlalchemy.dialects.postgresql import UUID
+
+from app.db.base import Base
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(String(50), unique=True, nullable=False)
+    nickname = Column(String(50), nullable=False)
+    password_hash = Column(String(128), nullable=False)
+    gender = Column(String(6), nullable=False)  # 'male' or 'female'
+    birth_date = Column(Date, nullable=False)    # YYYY-MM-DD 저장
+    height = Column(Integer, nullable=False)     # cm
+    weight = Column(Integer, nullable=False)     # kg
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

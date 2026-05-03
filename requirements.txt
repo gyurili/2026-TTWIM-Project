@@ -8,7 +8,12 @@ h11==0.16.0
 idna==3.11
 pydantic==2.12.5
 pydantic_core==2.41.5
+pydantic-settings==2.8.1
 starlette==1.0.0
 typing-inspection==0.4.2
 typing_extensions==4.15.0
 uvicorn==0.44.0
+SQLAlchemy[asyncio]>=2.0.0
+asyncpg>=0.27
+passlib[bcrypt]>=1.7.4
+python-jose>=3.3.0
