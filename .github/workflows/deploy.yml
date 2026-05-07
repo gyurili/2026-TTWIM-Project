@@ -22,5 +22,6 @@ jobs:
           script: |
             cd /home/ubuntu/azas-backend
             git pull origin main
+            docker stop $(docker ps -q) || true
             docker-compose down
             docker-compose up -d --build
