@@ -54,10 +54,15 @@ def _read_sqlite(db_path: str) -> List[IMURecordCreate]:
             gyro_y=row["GyroY"],
             gyro_z=row["GyroZ"],
             created_at=_parse_korean_datetime(row["createdAt"]),
+            # 💡 [보안] .db 파일 파싱할 때는 회원/신체 정보가 없으므로 None으로 명시적 채움 (스키마 에러 방지)
+            user_id=None,
+            session_id=None,
+            label=None,
+            weight=None,
+            height=None
         )
         for row in rows
     ]
-
 
 def _parse_korean_datetime(dt_str: str) -> datetime:
     """
