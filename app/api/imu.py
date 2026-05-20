@@ -9,7 +9,7 @@ router = APIRouter(prefix="/imu", tags=["IMU"])
 
 
 
-# ── 2. JSON 배치 전송 ─────────────────────────────────────────
+# ── 2. JSON 배치 전송 ──────────────────────────────────────
 @router.post("/batch", response_model=IMUBatchResponse, status_code=201)
 def upload_batch(
     payload: IMUBatchUpload,
