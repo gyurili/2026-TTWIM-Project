@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from datetime import datetime
-from typing import List
+from typing import Optional, List
 
 
 class IMURecordCreate(BaseModel):
@@ -13,6 +13,12 @@ class IMURecordCreate(BaseModel):
     gyro_z: float
     created_at: datetime
 
+    # 데이터 수집용 추가 정보
+    user_id:    Optional[str]   = None
+    session_id: Optional[str]   = None
+    label:      Optional[str]   = None
+    weight:     Optional[float] = None
+    height:     Optional[float] = None
 
 
 class IMUBatchUpload(BaseModel):

@@ -23,3 +23,10 @@ class IMURecord(Base):
 
     # 서버 수신 시각 (자동)
     received_at = Column(DateTime, server_default=func.now())
+
+    # 데이터 수집용 추가 정보
+    user_id    = Column(String(50), nullable=True)
+    session_id = Column(String(50), nullable=True)
+    label      = Column(String(50), nullable=True)  # "normal", "heel_strike", "overpronation" 등
+    weight     = Column(Float, nullable=True)        # 체중 (kg)
+    height     = Column(Float, nullable=True)        # 키 (cm)
