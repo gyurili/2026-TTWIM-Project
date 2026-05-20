@@ -64,11 +64,36 @@ def _read_sqlite(db_path: str) -> List[IMURecordCreate]:
         for row in rows
     ]
 
+import re  # 💡 파일 최상단에 import re 가 없다면 추가해 주세요!
+from datetime import datetime
+
 def _parse_korean_datetime(dt_str: str) -> datetime:
     """
-    "2025. 5. 18. 오전 10:00:00" → datetime
-    toLocaleString('ko-KR') 형식 파싱
+    "2026. 5. 20. 오후 9:36:44" 또는 "2026. 5. 20. 오후 9:36:45.8" 
+    한국어 날짜 형식을 자릿수 오류 없이 완벽하게 24시간제 datetime으로 변환합니다.
     """
     dt_str = dt_str.strip()
-    dt_str = dt_str.replace("오전", "AM").replace("오후", "PM")
-    return datetime.strptime(dt_str, "%Y. %m. %d. %p %I:%M:%S")
+    
+    # 1. 정규식으로 숫자들만 쏙쏙 뽑아냅니다.
+    # 결과 예시: ['2026', '5', '20', '9', '36', '44', '8']
+    numbers = re.findall(r'\d+', dt_str)
+    
+    # 만약 소수점(밀리초)이 없다면 뒤에 0을 채워줍니다.
+    if len(numbers) == 6:
+        numbers.append("0")
+        
+    year, month, day, hour, minute, second, micro = map(int, numbers)
+    
+    # 2. '오후' 변환 처리 (12시간제 -> 24시간제)
+    # 12시는 오후 12시(24시간제 12시), 오전 12시(24시간제 0시) 예외처리 포함
+    if "오후" in dt_str and hour != 12:
+        hour += 12
+    elif "오전" in dt_str and hour == 12:
+        hour = 0
+        
+    # 밀리초 자릿수 맞추기 (예: 8 -> 800000 마이크로초)
+    micro_str = numbers[6].ljust(6, '0')[:6]
+    micro = int(micro_str)
+
+    # 3. 안전하게 정수값들로 datetime 객체 조립
+    return datetime(year, month, day, hour, minute, second, micro)
