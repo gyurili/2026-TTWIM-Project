@@ -3,28 +3,33 @@ from datetime import datetime
 from typing import Optional, List
 
 
-class IMURecordCreate(BaseModel):
-    side: str
-    acc_x: float
-    acc_y: float
-    acc_z: float
-    gyro_x: float
-    gyro_y: float
-    gyro_z: float
-    created_at: datetime
+class GaitRecordCreate(BaseModel):
+    side        : str
+    step_index  : int
+    start_time  : datetime
+    end_time    : datetime
+    peak_acc_z  : float
+    cadence     : float
+    contact_time: float
+    label       : str = 'normal'
 
-    # 데이터 수집용 추가 정보
-    user_id:    Optional[str]   = None
-    session_id: Optional[str]   = None
-    label:      Optional[str]   = None
-    weight:     Optional[float] = None
-    height:     Optional[float] = None
+    resampled_acc_x : List[float]
+    resampled_acc_y : List[float]
+    resampled_acc_z : List[float]
+    resampled_gyro_x: List[float]
+    resampled_gyro_y: List[float]
+    resampled_gyro_z: List[float]
+
+    user_id    : Optional[str]   = None
+    session_id : Optional[str]   = None
+    weight     : Optional[float] = None
+    height     : Optional[float] = None
 
 
-class IMUBatchUpload(BaseModel):
-    records: List[IMURecordCreate] = Field(..., min_length=1)
+class GaitBatchUpload(BaseModel):
+    records: List[GaitRecordCreate] = Field(..., min_length=1)
 
 
-class IMUBatchResponse(BaseModel):
+class GaitBatchResponse(BaseModel):
     message: str
-    count: int
+    count  : int
