@@ -28,3 +28,10 @@ starlette==1.0.0
 typing-inspection==0.4.2
 typing_extensions==4.15.0
 uvicorn==0.44.0
+
+# ML Inference
+scipy==1.15.1
+scikit-learn==1.6.1
+joblib==1.4.2
+numpy==2.2.2
+pandas==2.3.0
