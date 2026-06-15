@@ -38,6 +38,9 @@ jobs:
           script: |
             cd /home/ubuntu/azas-backend
             git pull origin main
+
+            echo "${{ secrets.DOCKERHUB_PASSWORD }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+            
             docker-compose down
             docker system prune -a -f
             docker-compose pull
