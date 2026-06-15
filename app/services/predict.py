@@ -5,7 +5,7 @@ import pandas as pd
 from scipy.signal import butter, filtfilt
 from app.schemas.predict import PredictBatchRequest, PredictBatchResponse, StepPrediction
 
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "ensemble_model_600.pkl")
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "ensemble_model_6002.pkl")
 
 PREDICTION_LABELS = {
     0: "정상 보행",
