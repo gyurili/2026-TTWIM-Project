@@ -1,14 +1,24 @@
 from pydantic import BaseModel
 
 
-class PredictRequest(BaseModel):
+class StepFeatures(BaseModel):
     acc_x: list[float]
     acc_y: list[float]
     acc_z: list[float]
-    contact_time: float
+    gyro_x: list[float]
+    gyro_y: list[float]
+    gyro_z: list[float]
 
 
-class PredictResponse(BaseModel):
-    status: str
+class PredictBatchRequest(BaseModel):
+    steps: list[StepFeatures]
+
+
+class StepPrediction(BaseModel):
     prediction_code: int
     prediction_label: str
+
+
+class PredictBatchResponse(BaseModel):
+    status: str
+    predictions: list[StepPrediction]
