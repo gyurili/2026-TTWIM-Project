@@ -3,9 +3,17 @@ import joblib
 import numpy as np
 import pandas as pd
 from scipy.signal import butter, filtfilt
-from app.schemas.predict import PredictRequest, PredictResponse
+from app.schemas.predict import PredictBatchRequest, PredictBatchResponse, StepPrediction
 
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "ensemble_model.pkl")
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "ensemble_model_600.pkl")
+
+PREDICTION_LABELS = {
+    0: "정상 보행",
+    1: "힐스트라이크",
+}
+
+_AXES = ["acc_x", "acc_y", "acc_z", "gyro_x", "gyro_y", "gyro_z"]
+_FEATURE_NAMES = [f"{axis}_{i}" for axis in _AXES for i in range(100)]
 
 try:
     _model = joblib.load(MODEL_PATH)
@@ -24,58 +32,28 @@ def _butter_lowpass_filter(data, cutoff=40.0, fs=100.0, order=4):
     return filtfilt(b, a, x, padlen=padlen)
 
 
-def _extract_features(x_arr, y_arr, z_arr, contact_time):
-    filt_x = _butter_lowpass_filter(x_arr)
-    filt_y = _butter_lowpass_filter(y_arr)
-    filt_z = _butter_lowpass_filter(z_arr)
-
-    max_z = np.max(filt_z)
-    time_to_peak_z = np.argmax(filt_z) / len(filt_z)
-    max_jerk_z = np.max(np.gradient(filt_z))
-    std_z = np.std(filt_z)
-
-    max_abs_y = np.max(np.abs(filt_y))
-    std_y = np.std(filt_y)
-
-    max_abs_x = np.max(np.abs(filt_x))
-    std_x = np.std(filt_x)
-
-    vector_magnitude = np.sqrt(filt_x**2 + filt_y**2 + filt_z**2)
-    max_vm = np.max(vector_magnitude)
-
-    ratio_z_y = max_z / (max_abs_y + 1e-6)
-    energy_z = np.sum(filt_z**2)
-
-    return pd.DataFrame([{
-        "max_z": max_z,
-        "time_to_peak_z": time_to_peak_z,
-        "max_jerk_z": max_jerk_z,
-        "std_z": std_z,
-        "max_abs_y": max_abs_y,
-        "std_y": std_y,
-        "max_abs_x": max_abs_x,
-        "std_x": std_x,
-        "max_vm": max_vm,
-        "ratio_z_y": ratio_z_y,
-        "energy_z": energy_z,
-        "contact_time": contact_time,
-    }])
+def _step_to_raw(step) -> np.ndarray:
+    filtered = [_butter_lowpass_filter(getattr(step, ax)) for ax in _AXES]
+    return np.concatenate(filtered)
 
 
-def predict(data: PredictRequest) -> PredictResponse:
+def predict_batch(request: PredictBatchRequest) -> PredictBatchResponse:
     if _model is None:
         raise RuntimeError("모델이 로드되지 않았습니다.")
 
-    if len(data.acc_z) < 10:
-        raise ValueError("데이터 길이가 너무 짧습니다.")
+    if not request.steps:
+        return PredictBatchResponse(status="success", predictions=[])
 
-    features_df = _extract_features(data.acc_x, data.acc_y, data.acc_z, data.contact_time)
+    rows = [_step_to_raw(step) for step in request.steps]
+    X = pd.DataFrame(rows, columns=_FEATURE_NAMES)
+    preds = _model.predict(X)
 
-    prediction = _model.predict(features_df)[0]
-    label = "정상 보행" if prediction == 0 else "힐스트라이크"
+    predictions = [
+        StepPrediction(
+            prediction_code=int(p),
+            prediction_label=PREDICTION_LABELS.get(int(p), "알 수 없음"),
+        )
+        for p in preds
+    ]
 
-    return PredictResponse(
-        status="success",
-        prediction_code=int(prediction),
-        prediction_label=label,
-    )
+    return PredictBatchResponse(status="success", predictions=predictions)
