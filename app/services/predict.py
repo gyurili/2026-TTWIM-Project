@@ -5,7 +5,7 @@ import pandas as pd
 from scipy.signal import butter, filtfilt
 from app.schemas.predict import PredictRequest, PredictResponse
 
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "rf_model.pkl")
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "ensemble_model.pkl")
 
 try:
     _model = joblib.load(MODEL_PATH)
@@ -40,7 +40,11 @@ def _extract_features(x_arr, y_arr, z_arr, contact_time):
     max_abs_x = np.max(np.abs(filt_x))
     std_x = np.std(filt_x)
 
-    max_vm = np.max(np.sqrt(filt_x**2 + filt_y**2 + filt_z**2))
+    vector_magnitude = np.sqrt(filt_x**2 + filt_y**2 + filt_z**2)
+    max_vm = np.max(vector_magnitude)
+
+    ratio_z_y = max_z / (max_abs_y + 1e-6)
+    energy_z = np.sum(filt_z**2)
 
     return pd.DataFrame([{
         "max_z": max_z,
@@ -52,6 +56,8 @@ def _extract_features(x_arr, y_arr, z_arr, contact_time):
         "max_abs_x": max_abs_x,
         "std_x": std_x,
         "max_vm": max_vm,
+        "ratio_z_y": ratio_z_y,
+        "energy_z": energy_z,
         "contact_time": contact_time,
     }])
 
