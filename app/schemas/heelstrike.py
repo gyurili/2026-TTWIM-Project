@@ -1,51 +1,71 @@
-import logging
-from fastapi import APIRouter, HTTPException, status
-from fastapi.concurrency import run_in_threadpool  # 👈 비동기 오버헤드 방지 스레드풀 워커
+from pydantic import BaseModel, Field, field_validator
+from typing import Optional
 
-from app.schemas.heelstrike import StepRequest, StepResponse, ErrorResponse
-from app.services.heelstrike_service import predict, ModelNotLoadedError
-
-logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/v1", tags=["힐스트라이크 감지"])
+# 💡 절대 이곳에 app.services 관련 임포트가 있으면 안 됩니다! 다 지워야 합니다.
 
 # ─────────────────────────────────────────────
-# POST /api/v1/detect (리액트 네이티브 기존 단건 연동)
+# 요청 스키마
 # ─────────────────────────────────────────────
-@router.post(
-    "/detect",
-    response_model=StepResponse,  # 👈 단건 응답 유지 (RN 수정 불필요)
-    status_code=status.HTTP_200_OK,
-    summary="힐스트라이크 실시간 감지 (서버 가속 버전)",
-    responses={
-        200: {"model": StepResponse, "description": "감지 성공"},
-        400: {"model": ErrorResponse, "description": "잘못된 입력값"},
-        503: {"model": ErrorResponse, "description": "모델 미로드"},
-    },
-)
-async def detect_heel_strike(body: StepRequest) -> StepResponse:
+class StepRequest(BaseModel):
     """
-    React Native 코드를 고치지 않고, 매 초마다 요청을 수용할 수 있도록
-    서버 내부 워커 스레드와 DTW 캐시 레이어를 통해 초고속으로 처리합니다.
+    1스텝 가속도 데이터 요청 바디
+    React Native에서 스텝을 감지할 때마다 이 형태로 POST합니다.
     """
-    if not body.lengths_match():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="입력 축 데이터의 길이가 일치하지 않습니다.",
-        )
+    acc_x: list[float] = Field(..., min_length=10, description="X축 가속도 시계열 (m/s²)")
+    acc_y: list[float] = Field(..., min_length=10, description="Y축 가속도 시계열 (m/s²)")
+    acc_z: list[float] = Field(..., min_length=10, description="Z축(수직) 가속도 시계열 — 힐스트라이크 핵심 축")
+    contact_time: float = Field(..., gt=0, description="발 접지 시간 (ms)")
 
-    try:
-        # 💡 [핵심 최적화] CPU 연산이 심한 predict 함수를 
-        # FastAPI 이벤트 루프를 막지 않는 워커 스레드풀로 돌려 동시성 속도를 보장합니다.
-        result = await run_in_threadpool(predict, body)
-        return result
+    @field_validator("acc_x", "acc_y", "acc_z")
+    @classmethod
+    def check_length_equal(cls, v: list[float]) -> list[float]:
+        return v
 
-    except ModelNotLoadedError as e:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    except Exception as e:
-        logger.exception("실시간 추론 중 예상치 못한 에러")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"추론 중 에러 발생: {str(e)}"
-        )
+    @field_validator("contact_time")
+    @classmethod
+    def check_contact_time(cls, v: float) -> float:
+        if not (200 <= v <= 8000):
+            raise ValueError(f"contact_time은 200~8000ms 범위여야 합니다. 입력값: {v}ms")
+        return v
+
+    def lengths_match(self) -> bool:
+        return len(self.acc_x) == len(self.acc_y) == len(self.acc_z)
+
+
+# ─────────────────────────────────────────────
+# 응답 스키마
+# ─────────────────────────────────────────────
+class StepResponse(BaseModel):
+    """
+    힐스트라이크 감지 핵심 피드백 응답
+    """
+    is_heel_strike: bool = Field(..., description="힐스트라이크 여부 (true=힐스트라이크, false=정상)")
+    label: str = Field(..., description="감지 결과 레이블 ('heel_strike' | 'normal')")
+    confidence: float = Field(..., ge=0.0, le=1.0, description="최종 융합 모델이 판단한 확신도 (0~1)")
+    message: str = Field(..., description="사용자에게 가이드할 한국어 피드백 메시지")
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "is_heel_strike": True,
+                "label": "heel_strike",
+                "confidence": 0.823,
+                "message": "힐스트라이크가 감지되었습니다. 발 앞꿈치로 착지하도록 교정하세요."
+            }
+        }
+    }
+
+
+# ─────────────────────────────────────────────
+# 헬스체크 / 에러 스키마
+# ─────────────────────────────────────────────
+class HealthResponse(BaseModel):
+    status: str = Field(default="ok")
+    model_loaded: bool
+    threshold: float
+    message: str
+
+
+class ErrorResponse(BaseModel):
+    error: str
+    detail: Optional[str] = None
