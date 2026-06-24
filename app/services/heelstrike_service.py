@@ -2,7 +2,7 @@ import numpy as np
 import joblib
 import logging
 from pathlib import Path
-from functools import lru_cache  # 👈 캐싱을 위해 추가
+from functools import lru_cache
 
 from fastdtw import fastdtw
 from scipy.signal import butter, filtfilt, find_peaks

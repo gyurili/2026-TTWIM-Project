@@ -1,8 +1,6 @@
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional
 
-# 💡 절대 이곳에 app.services 관련 임포트가 있으면 안 됩니다! 다 지워야 합니다.
-
 # ─────────────────────────────────────────────
 # 요청 스키마
 # ─────────────────────────────────────────────
