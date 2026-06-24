@@ -32,7 +32,7 @@ except Exception as e:
     print(f"[predict service] 모델 로드 실패: {e}")
 
 
-def _butter_lowpass_filter(data, cutoff=40.0, fs=100.0, order=4):
+def _butter_lowpass_filter(data, cutoff=20.0, fs=50.0, order=4):
     nyq = 0.5 * fs
     normal_cutoff = cutoff / nyq
     b, a = butter(order, normal_cutoff, btype="low", analog=False)
