@@ -5,10 +5,10 @@ from fastapi import HTTPException
 from scipy.signal import butter, filtfilt
 from app.schemas.predict import PredictBatchRequest, PredictBatchResponse, StepPrediction
 
-_DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
-MODEL_PATH = os.path.join(_DATA_DIR, "cnn_model.onnx")
-MEAN_PATH  = os.path.join(_DATA_DIR, "norm_mean.npy")
-STD_PATH   = os.path.join(_DATA_DIR, "norm_std.npy")
+_CNN_DIR   = os.path.join(os.path.dirname(__file__), "..", "data", "cnn")
+MODEL_PATH = os.path.join(_CNN_DIR, "cnn_model.onnx")
+MEAN_PATH  = os.path.join(_CNN_DIR, "norm_mean.npy")
+STD_PATH   = os.path.join(_CNN_DIR, "norm_std.npy")
 
 PREDICTION_LABELS = {
     0: "normal",
