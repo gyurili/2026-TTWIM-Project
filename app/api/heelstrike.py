@@ -1,5 +1,5 @@
 import logging
-from typing import List  # 👈 추가
+from typing import List
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import JSONResponse
 
@@ -20,7 +20,7 @@ router = APIRouter(prefix="/api/v1", tags=["힐스트라이크 감지"])
 
 @router.post(
     "/detect",
-    response_model=List[StepResponse],  # 👈 응답 스키마를 List로 변경
+    response_model=List[StepResponse],
     status_code=status.HTTP_200_OK,
     summary="힐스트라이크 배치 감지",
     description=(
@@ -33,7 +33,7 @@ router = APIRouter(prefix="/api/v1", tags=["힐스트라이크 감지"])
         503: {"model": ErrorResponse, "description": "모델 미로드"},
     },
 )
-async def detect_heel_strike_batch(body: List[StepRequest]) -> List[StepResponse]: # 👈 입력을 List로 변경
+async def detect_heel_strike_batch(body: List[StepRequest]) -> List[StepResponse]:
     """
     힐스트라이크 묶음 감지 엔드포인트.
     """
