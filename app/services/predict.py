@@ -5,11 +5,13 @@ import pandas as pd
 from scipy.signal import butter, filtfilt
 from app.schemas.predict import PredictBatchRequest, PredictBatchResponse, StepPrediction
 
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "ensemble_model_gr.pkl")
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "ensemble_model_multi.pkl")
 
 PREDICTION_LABELS = {
-    0: "정상 보행",
-    1: "힐스트라이크",
+    0: "normal",
+    1: "heel_strike",
+    2: "overstride",
+    3: "foot_drag",
 }
 
 _AXES = ["acc_x", "acc_y", "acc_z", "gyro_x", "gyro_y", "gyro_z"]
