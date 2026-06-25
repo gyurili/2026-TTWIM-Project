@@ -16,32 +16,26 @@ def bulk_create_gait_records(
     first = records[0]
 
     db_session = GaitSession(
-        id      = session_id,
-        user_id = first.user_id,
-        label   = first.label,
-        weight  = first.weight,
-        height  = first.height,
+        id    = session_id,
+        label = first.label,
     )
     db.add(db_session)
     db.flush()
 
     db_records = [
         GaitRecord(
-            session_id       = session_id,
-            side             = r.side,
-            step_index       = r.step_index,
-            start_time       = r.start_time,
-            end_time         = r.end_time,
-            peak_acc_z       = r.peak_acc_z,
-            cadence          = r.cadence,
-            contact_time     = r.contact_time,
-            gait_label       = r.label,
-            resampled_acc_x  = json.dumps(r.resampled_acc_x),
-            resampled_acc_y  = json.dumps(r.resampled_acc_y),
-            resampled_acc_z  = json.dumps(r.resampled_acc_z),
-            resampled_gyro_x = json.dumps(r.resampled_gyro_x),
-            resampled_gyro_y = json.dumps(r.resampled_gyro_y),
-            resampled_gyro_z = json.dumps(r.resampled_gyro_z),
+            session_id   = session_id,
+            window_index = r.window_index,
+            start_time   = r.start_time,
+            end_time     = r.end_time,
+            label        = r.label,
+            subject      = r.subject,
+            raw_acc_x    = json.dumps(r.raw_acc_x),
+            raw_acc_y    = json.dumps(r.raw_acc_y),
+            raw_acc_z    = json.dumps(r.raw_acc_z),
+            raw_gyro_x   = json.dumps(r.raw_gyro_x),
+            raw_gyro_y   = json.dumps(r.raw_gyro_y),
+            raw_gyro_z   = json.dumps(r.raw_gyro_z),
         )
         for r in records
     ]
