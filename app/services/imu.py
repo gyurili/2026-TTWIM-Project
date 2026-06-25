@@ -30,10 +30,9 @@ def _read_sqlite(db_path: str) -> List[GaitRecordCreate]:
     cur = conn.cursor()
 
     cur.execute("""
-        SELECT side, stepIndex, startTime, endTime,
-               peakAccZ, cadence, contactTime, label,
-               resampledAccX, resampledAccY, resampledAccZ,
-               resampledGyroX, resampledGyroY, resampledGyroZ
+        SELECT windowIndex, startTime, endTime, label, subject,
+                rawAccX, rawAccY, rawAccZ,
+                rawGyroX, rawGyroY, rawGyroZ
         FROM sensor_data
         ORDER BY id ASC
     """)
@@ -42,20 +41,17 @@ def _read_sqlite(db_path: str) -> List[GaitRecordCreate]:
 
     return [
         GaitRecordCreate(
-            side             = row["side"],
-            step_index       = row["stepIndex"],
-            start_time       = datetime.fromisoformat(row["startTime"]),
-            end_time         = datetime.fromisoformat(row["endTime"]),
-            peak_acc_z       = row["peakAccZ"],
-            cadence          = row["cadence"],
-            contact_time     = row["contactTime"],
-            label            = row["label"] or "normal",
-            resampled_acc_x  = json.loads(row["resampledAccX"]),
-            resampled_acc_y  = json.loads(row["resampledAccY"]),
-            resampled_acc_z  = json.loads(row["resampledAccZ"]),
-            resampled_gyro_x = json.loads(row["resampledGyroX"]),
-            resampled_gyro_y = json.loads(row["resampledGyroY"]),
-            resampled_gyro_z = json.loads(row["resampledGyroZ"]),
+            window_index = row["windowIndex"],
+            start_time   = datetime.fromisoformat(row["startTime"]),
+            end_time     = datetime.fromisoformat(row["endTime"]),
+            label        = row["label"] or "normal",
+            subject      = row["subject"] or "",
+            raw_acc_x    = json.loads(row["rawAccX"]),
+            raw_acc_y    = json.loads(row["rawAccY"]),
+            raw_acc_z    = json.loads(row["rawAccZ"]),
+            raw_gyro_x   = json.loads(row["rawGyroX"]),
+            raw_gyro_y   = json.loads(row["rawGyroY"]),
+            raw_gyro_z   = json.loads(row["rawGyroZ"]),
         )
         for row in rows
     ]

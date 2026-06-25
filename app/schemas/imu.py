@@ -1,29 +1,21 @@
 from pydantic import BaseModel, Field
 from datetime import datetime
-from typing import Optional, List
+from typing import List
 
 
 class GaitRecordCreate(BaseModel):
-    side        : str
-    step_index  : int
+    window_index: int
     start_time  : datetime
     end_time    : datetime
-    peak_acc_z  : float
-    cadence     : float
-    contact_time: float
     label       : str = 'normal'
+    subject     : str = ''
 
-    resampled_acc_x : List[float]
-    resampled_acc_y : List[float]
-    resampled_acc_z : List[float]
-    resampled_gyro_x: List[float]
-    resampled_gyro_y: List[float]
-    resampled_gyro_z: List[float]
-
-    user_id    : Optional[str]   = None
-    session_id : Optional[str]   = None
-    weight     : Optional[float] = None
-    height     : Optional[float] = None
+    raw_acc_x : List[float]
+    raw_acc_y : List[float]
+    raw_acc_z : List[float]
+    raw_gyro_x: List[float]
+    raw_gyro_y: List[float]
+    raw_gyro_z: List[float]
 
 
 class GaitBatchUpload(BaseModel):
