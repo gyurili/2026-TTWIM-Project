@@ -1,67 +1,52 @@
 import os
 import numpy as np
-import onnxruntime as ort
-from fastapi import HTTPException
+import joblib
+import pandas as pd
 from scipy.signal import butter, filtfilt
 from app.schemas.predict import PredictBatchRequest, PredictBatchResponse, StepPrediction
 
-_CNN_DIR   = os.path.join(os.path.dirname(__file__), "..", "data", "cnn")
-MODEL_PATH = os.path.join(_CNN_DIR, "cnn_model.onnx")
-MEAN_PATH  = os.path.join(_CNN_DIR, "norm_mean.npy")
-STD_PATH   = os.path.join(_CNN_DIR, "norm_std.npy")
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "ensemble_model_gr.pkl")
 
 PREDICTION_LABELS = {
-    0: "normal",
-    1: "heel_strike",
-    2: "overstride",
-    3: "foot_drag",
+    0: "정상 보행",
+    1: "힐스트라이크",
 }
 
 _AXES = ["acc_x", "acc_y", "acc_z", "gyro_x", "gyro_y", "gyro_z"]
-
-_session = None
-_mean    = None
-_std     = None
+_FEATURE_NAMES = [f"{axis}_{i}" for axis in _AXES for i in range(100)]
 
 try:
-    _session = ort.InferenceSession(MODEL_PATH, providers=['CPUExecutionProvider'])
-    _mean    = np.load(MEAN_PATH)
-    _std     = np.load(STD_PATH)
-    print("[predict service] ONNX 모델 로드 성공")
+    _model = joblib.load(MODEL_PATH)
 except Exception as e:
+    _model = None
     print(f"[predict service] 모델 로드 실패: {e}")
 
 
-def _butter_lowpass_filter(data, cutoff=20.0, fs=50.0, order=4):
+def _butter_lowpass_filter(data, cutoff=40.0, fs=100.0, order=4):
     nyq = 0.5 * fs
     normal_cutoff = cutoff / nyq
     b, a = butter(order, normal_cutoff, btype="low", analog=False)
     x = np.array(data, dtype=float)
-    return filtfilt(b, a, x)
+    ntaps = max(len(a), len(b))
+    padlen = min(ntaps * 3, len(x) - 1)
+    return filtfilt(b, a, x, padlen=padlen)
+
+
+def _step_to_raw(step) -> np.ndarray:
+    filtered = [_butter_lowpass_filter(getattr(step, ax)) for ax in _AXES]
+    return np.concatenate(filtered)
 
 
 def predict_batch(request: PredictBatchRequest) -> PredictBatchResponse:
-    if _session is None:
+    if _model is None:
         raise RuntimeError("모델이 로드되지 않았습니다.")
 
     if not request.steps:
         return PredictBatchResponse(status="success", predictions=[])
 
-    signals = []
-    for step in request.steps:
-        axes = [_butter_lowpass_filter(getattr(step, ax)) for ax in _AXES]
-        if any(len(ax) != 100 for ax in axes):
-            raise HTTPException(
-                status_code=400,
-                detail=f"입력 데이터는 100포인트여야 합니다. 현재: {[len(ax) for ax in axes]}",
-            )
-        signals.append(np.stack(axes, axis=1))  # (100, 6)
-
-    X = np.stack(signals, axis=0).astype(np.float32)  # (N, 100, 6)
-    X = (X - _mean) / _std
-    X = X.transpose(0, 2, 1)                          # (N, 6, 100)
-
-    preds = _session.run(["output"], {"input": X})[0].argmax(axis=1)
+    rows = [_step_to_raw(step) for step in request.steps]
+    X = pd.DataFrame(rows, columns=_FEATURE_NAMES)
+    preds = _model.predict(X)
 
     predictions = [
         StepPrediction(
