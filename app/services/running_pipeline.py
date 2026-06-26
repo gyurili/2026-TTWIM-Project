@@ -11,7 +11,7 @@ from app.schemas.running_pipeline import (
     StepPrediction,
 )
 
-_PIPELINE_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "running_pipeline.pkl")
+_PIPELINE_PATH = os.path.join(os.path.dirname(__file__), "..", "data", "running_pipeline.pkl")
 
 PREDICTION_LABELS = {0: "normal", 1: "abnormal"}
 _AXES = ["acc_x", "acc_y", "acc_z", "gyro_x", "gyro_y", "gyro_z"]
