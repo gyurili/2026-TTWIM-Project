@@ -23,6 +23,7 @@ try:
     _scaler = joblib.load(SCALER_PATH)
     print("[predict service] LightGBM 모델 로드 성공")
 except Exception as e:
+    _model = None
     print(f"[predict service] 모델 로드 실패: {e}")
 
 
