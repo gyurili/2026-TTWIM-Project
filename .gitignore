@@ -8,6 +8,7 @@ __pycache__/
 
 # === 가상환경 ===
 venv/
+myvenv/
 env/
 ENV/
 bin/
@@ -42,6 +43,7 @@ share/python-wheels/
 # === 운영체제 임시 파일 ===
 .DS_Store
 Thumbs.db
+.aider*
 
 # AWS 키
 *.pem

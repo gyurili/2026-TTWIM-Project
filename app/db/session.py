@@ -4,7 +4,7 @@ from app.core.config import settings
 
 engine = create_engine(
     settings.DATABASE_URL,
-    pool_pre_ping=True,  # 끊긴 연결 자동 감지
+    pool_pre_ping=True,
     pool_size=5,
     max_overflow=10,
 )
