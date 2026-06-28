@@ -1,4 +1,4 @@
-# Azas FastAPI 프로젝트
+# Azas팀 FastAPI 레포
 
 아자쓰 팀의 FastAPI 저장소입니다.
 
