@@ -6,6 +6,7 @@ import joblib
 import pandas as pd
 from scipy.signal import butter, filtfilt, find_peaks
 from scipy.stats import skew, kurtosis
+from fastapi import HTTPException
 from app.core.exceptions import ModelNotLoadedError
 from app.schemas.predict import PredictBatchRequest, PredictBatchResponse, StepPrediction
 
