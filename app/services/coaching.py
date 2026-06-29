@@ -93,7 +93,7 @@ def _call_llm(prompt: str, coaching_type: str) -> tuple[str, str] | None:
                     f"오늘의 코칭 주제는 '{COACHING_TYPES.get(coaching_type, coaching_type)}'입니다."
                 ),
                 temperature=0.3,
-                max_output_tokens=150,
+                max_output_tokens=500,
             ),
         )
         text = response.text
