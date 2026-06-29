@@ -4,13 +4,14 @@ import tempfile
 import os
 from datetime import datetime
 from typing import List
-from fastapi import UploadFile, HTTPException
+from fastapi import UploadFile
+from app.core.exceptions import UploadValidationError
 from app.schemas.imu import GaitRecordCreate
 
 
 async def parse_sqlite_upload(file: UploadFile) -> List[GaitRecordCreate]:
     if not file.filename.endswith(".db"):
-        raise HTTPException(status_code=400, detail=".db 파일만 업로드 가능합니다")
+        raise UploadValidationError(".db 파일만 업로드 가능합니다")
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as tmp:
         tmp.write(await file.read())

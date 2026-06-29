@@ -1,11 +1,15 @@
+import logging
 import os
+
 import numpy as np
 import joblib
 import pandas as pd
-from fastapi import HTTPException
 from scipy.signal import butter, filtfilt, find_peaks
 from scipy.stats import skew, kurtosis
+from app.core.exceptions import ModelNotLoadedError
 from app.schemas.predict import PredictBatchRequest, PredictBatchResponse, StepPrediction
+
+logger = logging.getLogger(__name__)
 
 _DATA_DIR   = os.path.join(os.path.dirname(__file__), "..", "data")
 MODEL_PATH  = os.path.join(_DATA_DIR, "lgbm_model.pkl")
@@ -18,13 +22,12 @@ _AXES = ["acc_x", "acc_y", "acc_z", "gyro_x", "gyro_y", "gyro_z"]
 _model  = None
 _scaler = None
 
-try:
+
+def load_models() -> None:
+    global _model, _scaler
     _model  = joblib.load(MODEL_PATH)
     _scaler = joblib.load(SCALER_PATH)
-    print("[predict service] LightGBM 모델 로드 성공")
-except Exception as e:
-    _model = None
-    print(f"[predict service] 모델 로드 실패: {e}")
+    logger.info("LightGBM 모델 로드 성공")
 
 
 def _extract_features(ax, ay, az, gx, gy, gz) -> dict:
@@ -85,7 +88,7 @@ def _extract_features(ax, ay, az, gx, gy, gz) -> dict:
 
 def predict_batch(request: PredictBatchRequest) -> PredictBatchResponse:
     if _model is None or _scaler is None:
-        raise HTTPException(status_code=503, detail="모델이 로드되지 않았습니다.")
+        raise ModelNotLoadedError()
 
     if not request.steps:
         return PredictBatchResponse(status="success", predictions=[])

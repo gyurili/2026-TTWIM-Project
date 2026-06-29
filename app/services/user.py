@@ -2,10 +2,9 @@ import bcrypt
 from datetime import timedelta, datetime
 from typing import Optional
 
-from jose import JWTError, jwt
+from jose import jwt
 
 from app.core.config import settings
-from app.schemas.user import UserInfo
 
 
 def get_password_hash(password: str) -> str:
