@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
 
     # LLM
-    OPENAI_API_KEY: str = ""
+    GEMINI_API_KEY: str = ""
 
     @property
     def DATABASE_URL(self) -> str:

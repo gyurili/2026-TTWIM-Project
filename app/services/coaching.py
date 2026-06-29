@@ -1,7 +1,7 @@
 import logging
 
 import numpy as np
-from openai import OpenAI
+from google import genai
 
 from app.core.config import settings
 
@@ -80,26 +80,23 @@ def _classify_coaching_type(stats: dict) -> str:
 
 def _call_llm(prompt: str, coaching_type: str) -> tuple[str, str] | None:
     try:
-        client = OpenAI(api_key=settings.OPENAI_API_KEY)
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        f"당신은 러닝 코칭 전문가입니다. 센서 데이터를 분석하여 "
-                        f"사용자에게 과학적이고 구체적인 교정 동작을 한국어로 알려줍니다. "
-                        f"센서 수치를 직접 언급하며, 사용자가 즉시 실행할 수 있는 동작 위주로 "
-                        f"2문장 이내로 간결하게 조언하세요. "
-                        f"오늘의 코칭 주제는 '{COACHING_TYPES.get(coaching_type, coaching_type)}'입니다."
-                    ),
-                },
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.3,
-            max_tokens=150,
+        client = genai.Client(api_key=settings.GEMINI_API_KEY)
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt,
+            config=genai.types.GenerateContentConfig(
+                system_instruction=(
+                    f"당신은 러닝 코칭 전문가입니다. 센서 데이터를 분석하여 "
+                    f"사용자에게 과학적이고 구체적인 교정 동작을 한국어로 알려줍니다. "
+                    f"센서 수치를 직접 언급하며, 사용자가 즉시 실행할 수 있는 동작 위주로 "
+                    f"2문장 이내로 간결하게 조언하세요. "
+                    f"오늘의 코칭 주제는 '{COACHING_TYPES.get(coaching_type, coaching_type)}'입니다."
+                ),
+                temperature=0.3,
+                max_output_tokens=150,
+            ),
         )
-        text = response.choices[0].message.content
+        text = response.text
         if not text:
             return None
         return text.strip(), coaching_type
