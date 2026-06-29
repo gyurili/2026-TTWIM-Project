@@ -13,40 +13,46 @@ from app.schemas.predict import PredictBatchRequest, PredictBatchResponse, StepP
 logger = logging.getLogger(__name__)
 
 _DATA_DIR   = os.path.join(os.path.dirname(__file__), "..", "data")
-MODEL_PATH  = os.path.join(_DATA_DIR, "lgbm_model.pkl")
-SCALER_PATH = os.path.join(_DATA_DIR, "lgbm_scaler.pkl")
+MODEL_PATH  = os.path.join(_DATA_DIR, "svm_model.pkl")
+SCALER_PATH = os.path.join(_DATA_DIR, "svm_scaler.pkl")
 
 PREDICTION_LABELS = {0: "normal", 1: "abnormal"}
-
 _AXES = ["acc_x", "acc_y", "acc_z", "gyro_x", "gyro_y", "gyro_z"]
 
-_model  = None
-_scaler = None
+_model         = None
+_scaler        = None
+_feature_names = None
 
 
 def load_models() -> None:
-    global _model, _scaler
+    global _model, _scaler, _feature_names
     _model  = joblib.load(MODEL_PATH)
     _scaler = joblib.load(SCALER_PATH)
-    logger.info("LightGBM 모델 로드 성공")
+    if hasattr(_scaler, "feature_names_in_"):
+        _feature_names = _scaler.feature_names_in_
+    else:
+        logger.warning("스케일러에 feature_names_in_ 속성이 없습니다.")
+    logger.info("SVM 모델 및 스케일러 로드 성공")
 
 
-def _extract_features(ax, ay, az, gx, gy, gz) -> dict:
+def _extract_features(step) -> dict:
     b, a = butter(4, 20 / 25, btype="low")
-    ax = filtfilt(b, a, ax)
-    ay = filtfilt(b, a, ay)
-    az = filtfilt(b, a, az)
-    gx = filtfilt(b, a, gx)
-    gy = filtfilt(b, a, gy)
-    gz = filtfilt(b, a, gz)
 
-    acc_mag  = np.sqrt(ax**2 + ay**2 + az**2)
-    gyro_mag = np.sqrt(gx**2 + gy**2 + gz**2)
+    signals = {}
+    for axis in _AXES:
+        raw = np.array(getattr(step, axis), dtype=float)
+        signals[axis] = filtfilt(b, a, raw)
+
+    ax_arr, ay_arr, az_arr = signals["acc_x"], signals["acc_y"], signals["acc_z"]
+    gx_arr, gy_arr, gz_arr = signals["gyro_x"], signals["gyro_y"], signals["gyro_z"]
+
+    acc_mag  = np.sqrt(ax_arr**2 + ay_arr**2 + az_arr**2)
+    gyro_mag = np.sqrt(gx_arr**2 + gy_arr**2 + gz_arr**2)
 
     feats = {}
 
-    for name, sig in [("ax", ax), ("ay", ay), ("az", az),
-                      ("gx", gx), ("gy", gy), ("gz", gz)]:
+    for name, sig in [("ax", ax_arr), ("ay", ay_arr), ("az", az_arr),
+                    ("gx", gx_arr), ("gy", gy_arr), ("gz", gz_arr)]:
         feats[f"{name}_mean"] = np.mean(sig)
         feats[f"{name}_std"]  = np.std(sig)
         feats[f"{name}_max"]  = np.max(sig)
@@ -60,7 +66,7 @@ def _extract_features(ax, ay, az, gx, gy, gz) -> dict:
         feats[f"{name}_max"]  = np.max(sig)
         feats[f"{name}_min"]  = np.min(sig)
 
-    peaks, props = find_peaks(az, height=0.5, distance=15)
+    peaks, props = find_peaks(az_arr, height=0.5, distance=15)
     feats["az_peak_count"]    = len(peaks)
     feats["az_peak_mean_val"] = np.mean(props["peak_heights"]) if len(peaks) > 0 else 0
     feats["az_peak_std_val"]  = np.std(props["peak_heights"])  if len(peaks) > 1 else 0
@@ -74,15 +80,15 @@ def _extract_features(ax, ay, az, gx, gy, gz) -> dict:
         feats["az_peak_interval_std"]  = 0
         feats["az_peak_interval_cv"]   = 0
 
-    feats["az_rms"]       = np.sqrt(np.mean(az**2))
+    feats["az_rms"]       = np.sqrt(np.mean(az_arr**2))
     feats["acc_mag_rms"]  = np.sqrt(np.mean(acc_mag**2))
     feats["gyro_mag_rms"] = np.sqrt(np.mean(gyro_mag**2))
 
-    feats["az_front_back_ratio"]       = np.mean(az[:100]**2) / (np.mean(az[100:]**2) + 1e-6)
+    feats["az_front_back_ratio"]       = np.mean(az_arr[:100]**2) / (np.mean(az_arr[100:]**2) + 1e-6)
     feats["gyro_mag_front_back_ratio"] = np.mean(gyro_mag[:100]**2) / (np.mean(gyro_mag[100:]**2) + 1e-6)
 
-    feats["ax_az_corr"] = float(np.corrcoef(ax, az)[0, 1])
-    feats["gx_gz_corr"] = float(np.corrcoef(gx, gz)[0, 1])
+    feats["ax_az_corr"] = float(np.corrcoef(ax_arr, az_arr)[0, 1])
+    feats["gx_gz_corr"] = float(np.corrcoef(gx_arr, gz_arr)[0, 1])
 
     return feats
 
@@ -96,19 +102,19 @@ def predict_batch(request: PredictBatchRequest) -> PredictBatchResponse:
 
     feat_rows = []
     for i, step in enumerate(request.steps):
-        lengths = [len(getattr(step, ax)) for ax in _AXES]
+        lengths = [len(getattr(step, axis)) for axis in _AXES]
         if any(l != 200 for l in lengths):
             raise HTTPException(
                 status_code=400,
                 detail=f"step[{i}] 입력 데이터는 200포인트여야 합니다. 현재: {lengths}",
             )
-        feats = _extract_features(
-            *[np.array(getattr(step, ax), dtype=float) for ax in _AXES]
-        )
-        feat_rows.append(feats)
+        feat_rows.append(_extract_features(step))
 
     X = pd.DataFrame(feat_rows)
-    X_scaled = _scaler.transform(X)
+    if _feature_names is not None:
+        X = X[_feature_names]
+
+    X_scaled = pd.DataFrame(_scaler.transform(X), columns=X.columns)
     preds = _model.predict(X_scaled)
 
     predictions = [
