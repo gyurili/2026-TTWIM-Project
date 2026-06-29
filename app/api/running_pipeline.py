@@ -9,5 +9,7 @@ router = APIRouter(tags=["RunningPipeline"])
 def predict_running_pipeline(data: RunningPipelineBatchRequest):
     try:
         return service.predict_batch(data)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
