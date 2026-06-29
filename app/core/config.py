@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
 
+    # LLM
+    OPENAI_API_KEY: str = ""
+
     @property
     def DATABASE_URL(self) -> str:
         return (
