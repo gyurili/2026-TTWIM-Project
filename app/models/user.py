@@ -12,7 +12,7 @@ class User(Base):
     user_id = Column(String(50), unique=True, nullable=False)
     nickname = Column(String(50), nullable=False)
     password_hash = Column(String(128), nullable=False)
-    gender = Column(String(6), nullable=False)  # 'male' or 'female'
+    gender = Column(String(6), nullable=False)  # 'man' or 'woman'
     birth_date = Column(Date, nullable=False)    # YYYY-MM-DD 저장
     height = Column(Integer, nullable=False)     # cm
     weight = Column(Integer, nullable=False)     # kg
