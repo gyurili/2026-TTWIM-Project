@@ -1,0 +1,91 @@
+# .coderabbit.yaml
+version: "2"
+early_access: true
+
+reviews:
+  profile: assertive # 꼼꼼하고 엄격하게 리뷰
+  request_changes_workflow: true
+  high_level_summary: true
+  high_level_summary_placeholder: "@coderabbitai 요약"
+  auto_title_placeholder: "@coderabbitai"
+  poem: false
+  review_status: true
+  collapse_walkthrough: false
+
+  # 항상 한/영 동시에 요약본을 제공하도록 강제
+  high_level_summary_instructions: |
+    CRITICAL REQUIREMENT: Please provide all summaries and descriptions in BOTH English and Korean.
+    For each bullet point or section, write the English text first, and then provide its corresponding Korean translation right below it.
+
+  # 불필요한 대용량/바이너리 파일 분석 제외
+  path_filters:
+    - "!venv/**"
+    - "!__pycache__/**"
+    - "!**/__pycache__/**"
+    - "!*.pyc"
+    - "!.git/**"
+    - "!.github/**"
+    - "!.env"
+    - "!.dockerignore"
+    - "!Dockerfile"
+    - "!docker-compose.yml"
+    - "!README.md"
+    - "!app/data/*.pkl"
+    - "!app/data/*.joblib"
+
+  path_instructions:
+    - path: "app/**/*.py"
+      instructions: |
+        You are a production-grade FastAPI and Machine Learning Engineering expert.
+        CRITICAL: You MUST provide all your review feedback and inline comments in BOTH English and Korean (English first, followed immediately by its Korean translation).
+
+        Please review the code strictly based on the following project rules:
+        - Prioritize using asynchronous (async/await) patterns.
+        - PostgreSQL database access is handled via SQLAlchemy ORM.
+        - Validate all request/response schemas using Pydantic v2.
+        - Type hints are mandatory across the codebase.
+        - Handle business logic in the service layer (services/); keep routers (api/) lightweight.
+        - Abstract database access using the Repository Pattern (repositories/).
+        - Define CRUD logic in `crud/` and database models in `models/`.
+        - Use custom exception classes from `app/core/exceptions.py` for error handling.
+        - Access environment variables strictly via the `Settings` class in `app/core/config.py`.
+        - The ML model (scikit-learn SVM) is stored in `app/data/` and must be loaded using `joblib`. Ensure it is loaded as a singleton (e.g., via lifespan events) to prevent redundant loading.
+        - Use `google-genai` (Gemini) for coaching sentence generation.
+
+    - path: "tests/**/*.py"
+      instructions: |
+        You are a testing expert using pytest. 
+        CRITICAL: Provide all your feedback in BOTH English and Korean.
+
+        Please review the test code based on the following rules:
+        - Test function names must start with `test_`.
+        - Actively utilize pytest fixtures.
+        - Prefer actual database transactions over mocking where appropriate.
+        - The test file structure must mirror the `app/` directory structure.
+
+  auto_review:
+    enabled: true
+    ignore_title_keywords:
+      - "WIP"
+      - "wip"
+      - "Wip"
+      - "draft"
+      - "Draft"
+      - "[skip ci]"
+      - "[ci skip]"
+    drafts: false
+    base_branches:
+      - "develop"
+      - "main"
+      - "master"
+
+chat:
+  auto_reply: true
+
+knowledge_base:
+  learnings:
+    scope: local
+  issues:
+    scope: local
+  soft_learnings:
+    scope: local

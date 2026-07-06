@@ -90,11 +90,11 @@ def _call_llm(prompt: str, coaching_type: str) -> tuple[str, str] | None:
                     f"사용자에게 과학적이고 구체적인 교정 동작을 한국어로 알려줍니다. "
                     f"사용자가 즉시 실행할 수 있는 동작 위주로 "
                     f"2문장 이내로 간결하게 조언하세요. "
-                    f"말 끝을 흐리지 말고 반드시 마침표('.')로 완전히 끝맺음해야 합니다. " # <-- 추가
+                    f"말 끝을 흐리지 말고 반드시 마침표('.')로 완전히 끝맺음해야 합니다. "
                     f"오늘의 코칭 주제는 '{COACHING_TYPES.get(coaching_type, coaching_type)}'입니다."
                 ),
                 temperature=0.3,
-                max_output_tokens=4000,  # <-- 500에서 1000으로 상향
+                max_output_tokens=4000,
             ),
         )
         text = response.text
