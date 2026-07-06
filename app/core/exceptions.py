@@ -30,6 +30,11 @@ class InvalidCredentialsError(ServiceError):
         super().__init__(message, status_code=401)
 
 
+class UnauthorizedError(ServiceError):
+    def __init__(self, message: str = "로그인 토큰이 필요합니다."):
+        super().__init__(message, status_code=401)
+
+
 class GaitSaveError(ServiceError):
     def __init__(self, message: str):
         super().__init__(message, status_code=500)

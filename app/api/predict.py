@@ -1,4 +1,6 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from app.core.security import get_current_user
+from app.models.user import User
 from app.schemas.common import SuccessResponse
 from app.schemas.predict import PredictBatchRequest, PredictBatchResponse
 from app.services import predict as service
@@ -10,7 +12,7 @@ _CHANNEL_FIELDS = ["acc_x", "acc_y", "acc_z", "gyro_x", "gyro_y", "gyro_z"]
 
 
 @router.post("/predict", response_model=SuccessResponse[PredictBatchResponse])
-def predict_heel_strike(data: PredictBatchRequest):
+def predict_heel_strike(data: PredictBatchRequest, current_user: User = Depends(get_current_user)):
     result = service.predict_batch(data)
 
     abnormal_indices = [i for i, p in enumerate(result.predictions) if p.prediction_code == 1]

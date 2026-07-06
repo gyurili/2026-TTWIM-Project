@@ -3,7 +3,9 @@ import uuid
 from fastapi import APIRouter, Depends, UploadFile, File
 from sqlalchemy.orm import Session
 from app.core.exceptions import GaitSaveError
+from app.core.security import get_current_user
 from app.db.session import get_db
+from app.models.user import User
 from app.schemas.common import SuccessResponse
 from app.schemas.imu import GaitBatchUpload, GaitBatchResponse
 from app.crud import imu as crud
@@ -18,6 +20,7 @@ router = APIRouter(prefix="/imu", tags=["IMU"])
 def upload_batch(
     payload: GaitBatchUpload,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """React Native에서 JSON 배열로 묶어서 전송"""
     session_id = str(uuid.uuid4())
@@ -33,6 +36,7 @@ def upload_batch(
 async def upload_sqlite_db(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """React Native SQLite .db 파일을 그대로 전송받아 RDS에 저장"""
     session_id = str(uuid.uuid4())
