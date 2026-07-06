@@ -1,4 +1,3 @@
-# .coderabbit.yaml
 version: "2"
 early_access: true
 
@@ -12,10 +11,10 @@ reviews:
   review_status: true
   collapse_walkthrough: false
 
-  # 항상 한/영 동시에 요약본을 제공하도록 강제
+  # 한국어 우선 제공
   high_level_summary_instructions: |
-    CRITICAL REQUIREMENT: Please provide all summaries and descriptions in BOTH English and Korean.
-    For each bullet point or section, write the English text first, and then provide its corresponding Korean translation right below it.
+    CRITICAL REQUIREMENT: Please provide all summaries and descriptions in BOTH Korean and English.
+    For every sentence, bullet point, or section, you MUST write the Korean text first, followed immediately by its corresponding English translation inside parentheses, like this: 한국어 텍스트 (English text).
 
   # 불필요한 대용량/바이너리 파일 분석 제외
   path_filters:
@@ -37,7 +36,7 @@ reviews:
     - path: "app/**/*.py"
       instructions: |
         You are a production-grade FastAPI and Machine Learning Engineering expert.
-        CRITICAL: You MUST provide all your review feedback and inline comments in BOTH English and Korean (English first, followed immediately by its Korean translation).
+        CRITICAL: You MUST provide all your review feedback and inline comments in BOTH Korean and English. Always write the Korean text first, followed immediately by its corresponding English translation inside parentheses, like this: 한국어 피드백 내용 (English feedback).
 
         Please review the code strictly based on the following project rules:
         - Prioritize using asynchronous (async/await) patterns.
@@ -55,7 +54,7 @@ reviews:
     - path: "tests/**/*.py"
       instructions: |
         You are a testing expert using pytest. 
-        CRITICAL: Provide all your feedback in BOTH English and Korean.
+        CRITICAL: Provide all your feedback in BOTH Korean and English. Always write the Korean text first, followed immediately by its corresponding English translation inside parentheses, like this: 한국어 피드백 내용 (English feedback).
 
         Please review the test code based on the following rules:
         - Test function names must start with `test_`.
