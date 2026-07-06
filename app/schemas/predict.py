@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -12,8 +12,19 @@ class StepFeatures(BaseModel):
     gyro_z: list[float]
 
 
+class DtwContext(BaseModel):
+    status: Literal["stable", "drift", "alert"]
+    avgSimilarity: float
+    trend: Literal["improving", "steady", "worsening"]
+    shapeDev: float
+    cadenceDev: float
+    amplitudeDev: float
+    timeline: list[float]
+
+
 class PredictBatchRequest(BaseModel):
     steps: list[StepFeatures]
+    dtwContext: DtwContext
 
 
 class StepPrediction(BaseModel):
@@ -21,20 +32,7 @@ class StepPrediction(BaseModel):
     prediction_label: str
 
 
-class SensorStats(BaseModel):
-    acc_z_mean: float
-    acc_z_max: float
-    gyro_mag_peak: float
-    impact_score: float
-    step_count: int
-    stride_regularity: float
-
-
 class PredictBatchResponse(BaseModel):
-    status: str
     predictions: list[StepPrediction]
-    needs_coaching: bool = False
     coaching_text: str = ""
-    coaching_type: str = ""
-    coaching_type_label: str = ""
-    stats: Optional[SensorStats] = None
+    coaching_tags: list[str] = []

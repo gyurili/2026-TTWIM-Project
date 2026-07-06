@@ -1,19 +1,21 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from app.core.exceptions import DuplicateUserError, InvalidCredentialsError
 from app.db.session import get_db
 from app.repositories import user as user_repo
+from app.schemas.common import SuccessResponse
 from app.schemas.user import UserCreate, UserOut, UserLogin, TokenResponse, UserInfo
 from app.services.user import get_password_hash, verify_password, create_access_token
 
 router = APIRouter()
 
 
-@router.post("/signup", response_model=UserOut)
+@router.post("/signup", response_model=SuccessResponse[UserOut])
 def signup(payload: UserCreate, db: Session = Depends(get_db)):
     existing = user_repo.get_by_user_id(db, payload.user_id)
     if existing is not None:
-        raise HTTPException(status_code=400, detail="User ID already exists")
+        raise DuplicateUserError()
 
     user_data = {
         "user_id": payload.user_id,
@@ -26,15 +28,16 @@ def signup(payload: UserCreate, db: Session = Depends(get_db)):
     }
 
     user = user_repo.create_user(db, user_data)
-    return user
+    return SuccessResponse(data=user)
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login", response_model=SuccessResponse[TokenResponse])
 def login(payload: UserLogin, db: Session = Depends(get_db)):
     user = user_repo.get_by_user_id(db, payload.user_id)
     if not user or not verify_password(payload.password, user.password_hash):
-        raise HTTPException(status_code=401, detail="Incorrect user ID or password")
+        raise InvalidCredentialsError()
 
     token = create_access_token({"sub": str(user.id), "user_id": user.user_id})
     user_info = UserInfo(id=str(user.id), user_id=user.user_id, nickname=user.nickname)
-    return {"access_token": token, "token_type": "bearer", "user": user_info}
+    token_response = TokenResponse(access_token=token, token_type="bearer", user=user_info)
+    return SuccessResponse(data=token_response)
