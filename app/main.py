@@ -11,6 +11,7 @@ from app.db.session import engine
 from app.db.base import Base
 from app.core.exceptions import ServiceError
 import app.models.imu
+import app.models.running
 
 
 logger = logging.getLogger(__name__)
