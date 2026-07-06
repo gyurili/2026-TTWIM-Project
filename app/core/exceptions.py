@@ -13,3 +13,23 @@ class ModelNotLoadedError(ServiceError):
 class UploadValidationError(ServiceError):
     def __init__(self, message: str):
         super().__init__(message, status_code=400)
+
+
+class StepLengthError(ServiceError):
+    def __init__(self, message: str):
+        super().__init__(message, status_code=400)
+
+
+class DuplicateUserError(ServiceError):
+    def __init__(self, message: str = "User ID already exists"):
+        super().__init__(message, status_code=400)
+
+
+class InvalidCredentialsError(ServiceError):
+    def __init__(self, message: str = "Incorrect user ID or password"):
+        super().__init__(message, status_code=401)
+
+
+class GaitSaveError(ServiceError):
+    def __init__(self, message: str):
+        super().__init__(message, status_code=500)

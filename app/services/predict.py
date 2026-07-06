@@ -6,8 +6,7 @@ import joblib
 import pandas as pd
 from scipy.signal import butter, filtfilt, find_peaks
 from scipy.stats import skew, kurtosis
-from fastapi import HTTPException
-from app.core.exceptions import ModelNotLoadedError
+from app.core.exceptions import ModelNotLoadedError, StepLengthError
 from app.schemas.predict import PredictBatchRequest, PredictBatchResponse, StepPrediction
 
 logger = logging.getLogger(__name__)
@@ -98,16 +97,13 @@ def predict_batch(request: PredictBatchRequest) -> PredictBatchResponse:
         raise ModelNotLoadedError()
 
     if not request.steps:
-        return PredictBatchResponse(status="success", predictions=[])
+        return PredictBatchResponse(predictions=[])
 
     feat_rows = []
     for i, step in enumerate(request.steps):
         lengths = [len(getattr(step, axis)) for axis in _AXES]
         if any(l != 200 for l in lengths):
-            raise HTTPException(
-                status_code=400,
-                detail=f"step[{i}] 입력 데이터는 200포인트여야 합니다. 현재: {lengths}",
-            )
+            raise StepLengthError(f"step[{i}] 입력 데이터는 200포인트여야 합니다. 현재: {lengths}")
         feat_rows.append(_extract_features(step))
 
     X = pd.DataFrame(feat_rows)
@@ -125,4 +121,4 @@ def predict_batch(request: PredictBatchRequest) -> PredictBatchResponse:
         for p in preds
     ]
 
-    return PredictBatchResponse(status="success", predictions=predictions)
+    return PredictBatchResponse(predictions=predictions)

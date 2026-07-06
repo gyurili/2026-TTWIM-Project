@@ -1,6 +1,7 @@
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -39,7 +40,27 @@ app = FastAPI(
 
 @app.exception_handler(ServiceError)
 async def service_error_handler(request, exc: ServiceError):
-    return JSONResponse(status_code=exc.status_code, content={"detail": exc.message})
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"status": "error", "message": exc.message},
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(request: Request, exc: RequestValidationError):
+    message = "; ".join(
+        f"{'.'.join(str(p) for p in e['loc'])}: {e['msg']}" for e in exc.errors()
+    )
+    return JSONResponse(status_code=422, content={"status": "error", "message": message})
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.error("처리되지 않은 예외: %s", exc, exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"status": "error", "message": "서버 내부 오류가 발생했습니다."},
+    )
 
 
 app.add_middleware(
@@ -56,4 +77,4 @@ app.include_router(user_router, prefix="/user")
 
 @app.get("/")
 async def root():
-    return {"message": "AZAS API"}
+    return {"status": "success", "data": {"message": "AZAS API"}}

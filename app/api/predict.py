@@ -1,44 +1,34 @@
 from fastapi import APIRouter
-from app.schemas.predict import PredictBatchRequest, PredictBatchResponse, SensorStats
+from app.schemas.common import SuccessResponse
+from app.schemas.predict import PredictBatchRequest, PredictBatchResponse
 from app.services import predict as service
-from app.services.coaching import extract_stats, generate_coaching, COACHING_TYPES
+from app.services.coaching import generate_coaching
 
 router = APIRouter(tags=["Predict"])
 
 _CHANNEL_FIELDS = ["acc_x", "acc_y", "acc_z", "gyro_x", "gyro_y", "gyro_z"]
 
 
-@router.post("/predict", response_model=PredictBatchResponse)
-def predict_heel_strike(data: PredictBatchRequest, analyze: bool = False):
+@router.post("/predict", response_model=SuccessResponse[PredictBatchResponse])
+def predict_heel_strike(data: PredictBatchRequest):
     result = service.predict_batch(data)
-
-    if not analyze:
-        return result
 
     abnormal_indices = [i for i, p in enumerate(result.predictions) if p.prediction_code == 1]
     normal_count = len(result.predictions) - len(abnormal_indices)
-    if len(abnormal_indices) <= normal_count:
-        result.needs_coaching = False
-        return result
+    if len(abnormal_indices) > normal_count:
+        abnormal_windows = [data.steps[i] for i in abnormal_indices]
+        channels = {
+            field: [v for w in abnormal_windows for v in getattr(w, field)]
+            for field in _CHANNEL_FIELDS
+        }
 
-    abnormal_windows = [data.steps[i] for i in abnormal_indices]
-    merged_window = [
-        [v for w in abnormal_windows for v in getattr(w, field)]
-        for field in _CHANNEL_FIELDS
-    ]
-    stats = extract_stats(merged_window)
+        ratio = len(abnormal_indices) / len(data.steps)
+        dtw = data.dtwContext.model_dump()
+        coaching_result = generate_coaching(channels, ratio, dtw)
 
-    ratio = len(abnormal_indices) / len(data.steps)
-    coaching_result = generate_coaching(stats, ratio)
+        if coaching_result is not None:
+            text, tags = coaching_result
+            result.coaching_text = text
+            result.coaching_tags = tags
 
-    if coaching_result is not None:
-        text, ctype = coaching_result
-        result.needs_coaching = True
-        result.coaching_text = text
-        result.coaching_type = ctype
-        result.coaching_type_label = COACHING_TYPES.get(ctype, ctype)
-        result.stats = SensorStats(**stats)
-    else:
-        result.needs_coaching = False
-
-    return result
+    return SuccessResponse(data=result)
