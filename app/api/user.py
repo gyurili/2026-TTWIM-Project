@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import DuplicateUserError, InvalidCredentialsError
+from app.core.security import get_current_user
 from app.db.session import get_db
 from app.repositories import user as user_repo
 from app.schemas.common import SuccessResponse
@@ -41,3 +42,8 @@ def login(payload: UserLogin, db: Session = Depends(get_db)):
     user_info = UserInfo(id=str(user.id), user_id=user.user_id, nickname=user.nickname)
     token_response = TokenResponse(access_token=token, token_type="bearer", user=user_info)
     return SuccessResponse(data=token_response)
+
+
+@router.get("/me", response_model=SuccessResponse[UserOut])
+def get_me(current_user = Depends(get_current_user)):
+    return SuccessResponse(data=UserOut.model_validate(current_user))
