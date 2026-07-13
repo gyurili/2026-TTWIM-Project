@@ -3,6 +3,7 @@ import logging
 
 import numpy as np
 from google import genai
+from openai import OpenAI
 from pydantic import BaseModel
 
 from app.core.config import settings
@@ -89,41 +90,69 @@ def _build_prompt(stats: dict, ratio: float, dtw: dict) -> str:
     return "\n".join(lines)
 
 
+_SYSTEM_INSTRUCTION = (
+    "당신은 러닝 코칭 전문가입니다. 센서 통계와 개인 기준선 대비 편차(DTW) 정보를 "
+    "종합해 사용자에게 과학적이고 구체적인 교정 동작을 한국어로 알려줍니다. "
+    "DTW 편차 정보는 절대적 자세 판단이 아니라 '이 사용자가 평소보다 얼마나 흐트러졌는가'를 "
+    "뜻하므로, '자세가 틀렸다'가 아니라 '평소보다 흐트러졌다' 식으로 표현하세요. "
+    "cadenceDev 부호(+는 감속, -는 가속)와 amplitudeDev 부호(+는 크게 움직임, -는 덜 움직임)에 "
+    "유의하고, trend와 timeline으로 완만한 저하인지 급격한 붕괴인지 구분하세요. "
+    "예를 들어 cadenceDev 양수 + amplitudeDev 음수 + trend worsening이면 "
+    "속도가 느려지며 발을 덜 드는 중이므로 피로 누적 가능성으로 해석할 수 있습니다. "
+    "사용자가 즉시 실행할 수 있는 동작 위주로 2문장 이내로 간결하게 조언하세요. "
+    "말 끝을 흐리지 말고 반드시 마침표('.')로 완전히 끝맺음해야 합니다. "
+    "그리고 분석 결과를 바탕으로 tags를 선택하세요. 태그별 정의는 다음과 같습니다: "
+    "'충격 과다 러닝'은 충격 지수나 acc_z 최대값이 크거나 amplitudeDev가 뚜렷할 때, "
+    "'페이스 변화 러닝'은 cadenceDev나 shapeDev가 뚜렷하거나 trend가 worsening/improving일 때, "
+    "'안정 러닝'은 이 두 문제 중 어느 것도 뚜렷하지 않고 status가 stable에 가까울 때만 선택합니다. "
+    "'안정 러닝'은 문제가 없다는 뜻이므로 '충격 과다 러닝'이나 '페이스 변화 러닝'과 "
+    "동시에 선택할 수 없습니다. 문제가 하나라도 있으면 '안정 러닝'은 절대 포함하지 마세요. "
+    "해당하는 문제 태그가 여러 개면 모두 담아도 되지만, 최소 1개의 태그는 반드시 있어야 합니다."
+)
+
+
+def _call_gemini(prompt: str) -> tuple[str, list[str]] | None:
+    client = genai.Client(api_key=settings.GEMINI_API_KEY)
+    response = client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=prompt,
+        config=genai.types.GenerateContentConfig(
+            system_instruction=_SYSTEM_INSTRUCTION,
+            temperature=0.3,
+            max_output_tokens=4000,
+            response_mime_type="application/json",
+            response_schema=_CoachingOutput,
+        ),
+    )
+    parsed = getattr(response, "parsed", None)
+    if parsed is None and response.text:
+        parsed = _CoachingOutput(**json.loads(response.text))
+    return parsed
+
+
+def _call_openai(prompt: str) -> tuple[str, list[str]] | None:
+    client = OpenAI(api_key=settings.OPENAI_API_KEY)
+    response = client.beta.chat.completions.parse(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": _SYSTEM_INSTRUCTION},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.3,
+        max_tokens=4000,
+        response_format=_CoachingOutput,
+    )
+    return response.choices[0].message.parsed
+
+
 def _call_llm(prompt: str) -> tuple[str, list[str]] | None:
     try:
-        client = genai.Client(api_key=settings.GEMINI_API_KEY)
-        response = client.models.generate_content(
-            model="gemini-3-flash-preview",
-            contents=prompt,
-            config=genai.types.GenerateContentConfig(
-                system_instruction=(
-                    "당신은 러닝 코칭 전문가입니다. 센서 통계와 개인 기준선 대비 편차(DTW) 정보를 "
-                    "종합해 사용자에게 과학적이고 구체적인 교정 동작을 한국어로 알려줍니다. "
-                    "DTW 편차 정보는 절대적 자세 판단이 아니라 '이 사용자가 평소보다 얼마나 흐트러졌는가'를 "
-                    "뜻하므로, '자세가 틀렸다'가 아니라 '평소보다 흐트러졌다' 식으로 표현하세요. "
-                    "cadenceDev 부호(+는 감속, -는 가속)와 amplitudeDev 부호(+는 크게 움직임, -는 덜 움직임)에 "
-                    "유의하고, trend와 timeline으로 완만한 저하인지 급격한 붕괴인지 구분하세요. "
-                    "예를 들어 cadenceDev 양수 + amplitudeDev 음수 + trend worsening이면 "
-                    "속도가 느려지며 발을 덜 드는 중이므로 피로 누적 가능성으로 해석할 수 있습니다. "
-                    "사용자가 즉시 실행할 수 있는 동작 위주로 2문장 이내로 간결하게 조언하세요. "
-                    "말 끝을 흐리지 말고 반드시 마침표('.')로 완전히 끝맺음해야 합니다. "
-                    "그리고 분석 결과를 바탕으로 tags를 선택하세요. 태그별 정의는 다음과 같습니다: "
-                    "'충격 과다 러닝'은 충격 지수나 acc_z 최대값이 크거나 amplitudeDev가 뚜렷할 때, "
-                    "'페이스 변화 러닝'은 cadenceDev나 shapeDev가 뚜렷하거나 trend가 worsening/improving일 때, "
-                    "'안정 러닝'은 이 두 문제 중 어느 것도 뚜렷하지 않고 status가 stable에 가까울 때만 선택합니다. "
-                    "'안정 러닝'은 문제가 없다는 뜻이므로 '충격 과다 러닝'이나 '페이스 변화 러닝'과 "
-                    "동시에 선택할 수 없습니다. 문제가 하나라도 있으면 '안정 러닝'은 절대 포함하지 마세요. "
-                    "해당하는 문제 태그가 여러 개면 모두 담아도 되지만, 최소 1개의 태그는 반드시 있어야 합니다."
-                ),
-                temperature=0.3,
-                max_output_tokens=4000,
-                response_mime_type="application/json",
-                response_schema=_CoachingOutput,
-            ),
-        )
-        parsed = getattr(response, "parsed", None)
-        if parsed is None and response.text:
-            parsed = _CoachingOutput(**json.loads(response.text))
+        provider = settings.LLM_PROVIDER.lower()
+        if provider == "openai":
+            parsed = _call_openai(prompt)
+        else:
+            parsed = _call_gemini(prompt)
+
         if parsed is None or not parsed.text:
             return None
 
