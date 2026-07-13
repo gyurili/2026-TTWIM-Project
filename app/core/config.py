@@ -15,7 +15,9 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
 
     # LLM
+    LLM_PROVIDER: str = "gemini"  # "gemini" | "openai"
     GEMINI_API_KEY: str = ""
+    OPENAI_API_KEY: str = ""
 
     @property
     def DATABASE_URL(self) -> str:
