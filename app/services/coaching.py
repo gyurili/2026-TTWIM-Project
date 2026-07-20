@@ -31,6 +31,10 @@ _MIN_STEPS_REQUIRED = 2                 # 이 미만이면 "달리고 있었다"
 _LOW_MOTION_ACC_Z_STD = 0.05            # 이 이하이면 정지/거치 상태로 간주(g 단위 가정)
 _MIN_ACC_Z_RANGE_FLOOR = 0.05           # choppy_step_index 등 분모 폭주 방지용 하한
 _MIN_GYRO_FLOOR = 1e-3                  # swing/stance 비율 분모 폭주 방지용 하한
+_MIN_STEP_DISTANCE_SECONDS = 0.25       # 240spm보다 빠른 피크는 한 걸음으로 보지 않음
+_STEP_PROMINENCE_RATIO = 0.12           # 수직 가속 범위 대비 최소 착지 피크 두드러짐
+_MIN_STEP_PROMINENCE = 0.15             # 너무 작은 흔들림을 걸음 피크로 세지 않기 위한 하한(g)
+_CHOPPY_BASE_CADENCE_SPM = 160.0        # 이 케이던스 이하는 좁은 보폭 지표를 0으로 둠
 
 
 class InsufficientDataError(ValueError):
@@ -107,7 +111,7 @@ def extract_stats(
     acc_z_mean = float(np.mean(acc_z))
     acc_z_max = float(np.max(acc_z))
     acc_z_min = float(np.min(acc_z))
-    # [수정] 진짜 min/max 대신 p95-p5 사용: 센서 노이즈로 인한 단발성 스파이크 한 프레임이
+    # min/max 대신 p95-p5 사용: 센서 노이즈로 인한 단발성 스파이크 한 프레임이
     # range를 왜곡해 choppy_step_index 등 파생 지표를 오염시키는 것을 방지(이상치에 강건).
     acc_z_range_robust = float(np.percentile(acc_z, 95) - np.percentile(acc_z, 5))
     acc_z_std = float(np.std(acc_z))
@@ -130,19 +134,27 @@ def extract_stats(
     horizontal_jerk_std = float(np.std(np.sqrt(jerk_x ** 2 + jerk_y ** 2))) if len(jerk_x) > 0 else 0.0
     acc_z_low_p10 = float(np.percentile(acc_z, 10))
     acc_z_centered = acc_z - acc_z_mean
-    zc_indices = np.where(np.diff(np.sign(acc_z_centered)) != 0)[0]
-    step_count = int(len(zc_indices) / 2)
     duration_sec = total_frames / sample_rate_hz
+
+    min_peak_distance = max(1, int(sample_rate_hz * _MIN_STEP_DISTANCE_SECONDS))
+    peak_prominence = max(_MIN_STEP_PROMINENCE, acc_z_range_robust * _STEP_PROMINENCE_RATIO)
+    step_peaks, _ = find_peaks(
+        acc_z_centered,
+        distance=min_peak_distance,
+        prominence=peak_prominence,
+    )
+    step_count = int(len(step_peaks))
     cadence_spm = float(step_count / duration_sec * 60.0) if duration_sec > 0 else 0.0
 
-    
-    choppy_step_index = _safe_div(cadence_spm, acc_z_range_robust, floor=_MIN_ACC_Z_RANGE_FLOOR)
-
-    if len(zc_indices) > 2:
-        intervals = np.diff(zc_indices)
+    if len(step_peaks) > 2:
+        intervals = np.diff(step_peaks)
         peak_interval_cv = float(np.std(intervals) / (np.mean(intervals) + _EPS))
     else:
         peak_interval_cv = 0.0
+
+    cadence_excess = max(0.0, cadence_spm - _CHOPPY_BASE_CADENCE_SPM)
+    rhythm_regularity_factor = _safe_div(1.0, 1.0 + peak_interval_cv)
+    choppy_step_index = cadence_excess * rhythm_regularity_factor
 
     autocorr = np.correlate(acc_z_centered, acc_z_centered, mode="full")
     autocorr = autocorr[len(acc_z_centered) - 1:]
@@ -171,6 +183,14 @@ def extract_stats(
             f"실질적인 러닝 동작이 감지되지 않음 (acc_z_std={acc_z_std:.4f}, step_count={step_count})"
         )
 
+    # [정규화 지표] 절대 크기(g, deg/s) 기반 지표는 체중/키/보폭 크기에 따라
+    # 사람마다 기준선 자체가 달라 절대 임계값을 두면 일반화가 안 됨.
+    # 같은 구간의 전체 충격 에너지(acc_mag_rms)로 나눠 "이 사람 기준 상대적으로
+    # 얼마나 튀는가"로 바꾸면 체형과 무관하게 비교 가능해짐.
+    jerk_p95_norm = _safe_div(jerk_p95, acc_mag_rms)
+    acc_z_std_norm = _safe_div(acc_z_std, acc_mag_rms)
+    horizontal_jerk_std_norm = _safe_div(horizontal_jerk_std, acc_mag_rms)
+
     return {
         "acc_z_mean": _finite_round(acc_z_mean),
         "acc_z_max": _finite_round(acc_z_max),
@@ -178,9 +198,12 @@ def extract_stats(
         "acc_z_low_p10": _finite_round(acc_z_low_p10),
         "acc_z_range": _finite_round(acc_z_range_robust),
         "acc_z_std": _finite_round(acc_z_std),
+        "acc_z_std_norm": _finite_round(acc_z_std_norm),
         "impact_score": _finite_round(impact_score),
         "jerk_p95": _finite_round(jerk_p95),
+        "jerk_p95_norm": _finite_round(jerk_p95_norm),
         "horizontal_jerk_std": _finite_round(horizontal_jerk_std),
+        "horizontal_jerk_std_norm": _finite_round(horizontal_jerk_std_norm),
         "acc_mag_rms": _finite_round(acc_mag_rms),
         "gyro_mag_mean": _finite_round(gyro_mag_mean),
         "swing_gyro_energy": _finite_round(swing_gyro_energy),
@@ -200,20 +223,20 @@ def _build_prompt(stats: dict, ratio: float, dtw: dict) -> str:
         "[센서 통계: ML 비정상 판정 구간의 물리적 특징]",
         "1. 충격량 및 일관성 (충격 과다 판별 지표)",
         f" - 95% 최대 충격(impact_score): {stats['impact_score']}g",
-        f" - 지속성 관절 충격량(jerk_p95): {stats['jerk_p95']} (값이 클수록 일시적 노이즈가 아니라 지속해서 발을 쿵쿵거리는 충격 과다 상태)",
+        f" - 지속성 관절 충격량(jerk_p95): {stats['jerk_p95']} / 정규화값(jerk_p95_norm, ÷acc_mag_rms): {stats['jerk_p95_norm']} (체중·키에 따라 절대값 기준선이 달라지므로 반드시 정규화값 기준으로 판단. 클수록 지속적인 충격 과다)",
         f" - 수직 가속 범위(acc_z_range, p5~p95 기준): {stats['acc_z_range']}g (최대={stats['acc_z_max']}g, 최소={stats['acc_z_min']}g / 발을 안 들수록 이 범위가 극도로 좁아짐)",
-        f" - 수직 충격 변동성(acc_z_std): {stats['acc_z_std']}",
-        f" - 전체 충격 에너지(acc_mag_rms): {stats['acc_mag_rms']}",
+        f" - 수직 충격 변동성(acc_z_std): {stats['acc_z_std']} / 정규화값(acc_z_std_norm, ÷acc_mag_rms): {stats['acc_z_std_norm']}",
+        f" - 전체 충격 에너지(acc_mag_rms): {stats['acc_mag_rms']} (사람마다 체중/보폭에 따라 절대 크기가 다르므로 이 값 자체를 '이 사람의 기준 충격량'으로 삼아 다른 지표를 정규화함)",
         "",
         "2. 다리 스윙 및 리듬 (발끌기 vs 좁은 보폭 판단 핵심 지표)",
         f" - 다리 스윙 평균 속도(gyro_mag_mean): {stats['gyro_mag_mean']} deg/s",
-        f" - 스윙 구간 자이로 에너지(swing_gyro_energy): {stats['swing_gyro_energy']} deg/s (이 값이 낮으면 다리를 회전시키지 못하고 뒤로 질질 끄는 것)",
-        f" - 스윙/스탠스 자이로 비율(swing_stance_gyro_ratio): {stats['swing_stance_gyro_ratio']} (정상 러닝은 이 값이 뚜렷하게 1보다 큼. 1에 가깝거나 그 이하면 스윙 시 다리 회전이 죽어있다는 뜻 = 발끌기 핵심 신호)",
-        f" - 수평 마찰 진동(horizontal_jerk_std): {stats['horizontal_jerk_std']} (발이 끌릴 때 발생하는 미세 진동으로, 발을 끌수록 이 값이 높게 튐)",
+        f" - 스윙 구간 자이로 에너지(swing_gyro_energy): {stats['swing_gyro_energy']} deg/s (단독으로 발끌기를 의미하지 않으며 케이던스/충격 패턴과 함께 해석)",
+        f" - 스윙/스탠스 자이로 비율(swing_stance_gyro_ratio): {stats['swing_stance_gyro_ratio']} (이미 비율이라 체형과 무관하게 비교 가능. 낮으면 스윙 약화 후보이나, 충격 과다 착지나 짧은 보폭에서도 낮게 보일 수 있음)",
+        f" - 수평 마찰 진동(horizontal_jerk_std): {stats['horizontal_jerk_std']} / 정규화값(horizontal_jerk_std_norm, ÷acc_mag_rms): {stats['horizontal_jerk_std_norm']} (수평 방향 흔들림. 발끌기뿐 아니라 강한 착지 충격에서도 커질 수 있으므로 단독 근거로 사용 금지)",
         f" - 수직 가속 하위 10%(acc_z_low_p10): {stats['acc_z_low_p10']}g",
         f" - 걸음 수: {stats['step_count']}보",
         f" - 케이던스(cadence_spm): {stats['cadence_spm']} spm (일반적인 러닝 케이던스는 약 160~180spm. 이보다 뚜렷하게 높을 때만 '빠르게 발을 구른다'고 판단)",
-        f" - 종종걸음 지수(choppy_step_index): {stats['choppy_step_index']} (★핵심: '케이던스가 높은데 상하 범위가 좁을 때만' 수치가 크게 증가하며, 이 값이 높아야 진짜 좁은 보폭/종종걸음입니다)",
+        f" - 종종걸음 지수(choppy_step_index): {stats['choppy_step_index']} (★핵심: 케이던스가 높고 보폭 간격이 비교적 일정할수록 증가합니다. 15 이상이면 좁은 보폭/종종걸음의 강한 근거입니다)",
         f" - 보폭 간격 변동계수(peak_interval_cv): {stats['peak_interval_cv']}",
         f" - 보폭 규칙성(stride_regularity): {stats['stride_regularity']}",
         "",
@@ -245,20 +268,36 @@ _SYSTEM_INSTRUCTION = (
     "\n\n"
     "★태그 판정 절차 (반드시 아래 순서대로 확인하고, 각 조건에 '뚜렷하게' 해당할 때만 태그를 부여하세요. "
     "애매하거나 지표 하나만 살짝 벗어난 경우는 태그를 부여하지 마세요):\n\n"
-    "1단계 — 충격 과다 러닝: 지속성 관절 충격량(jerk_p95)과 전체 충격 에너지(acc_mag_rms)가 함께 높거나, "
-    "수직 충격 변동성(acc_z_std)이 크거나, DTW의 amplitudeDev가 뚜렷한 양수(평소보다 과도하게 무겁게 착지)일 때 선택합니다.\n\n"
+    "★중요: jerk_p95, acc_z_std, horizontal_jerk_std는 체중·키·보폭 크기에 따라 사람마다 절대 기준선이 다른 "
+    "물리량입니다. 반드시 각 값의 정규화 버전(jerk_p95_norm, acc_z_std_norm, horizontal_jerk_std_norm — 모두 "
+    "acc_mag_rms로 나눈 '이 사람의 평균 충격 대비 상대 비율')을 기준으로 판단하고, 원본 절대값은 참고용으로만 "
+    "사용하세요. swing_stance_gyro_ratio, front_back_ratio, peak_interval_cv는 이미 비율이라 그대로 사용합니다.\n\n"
+    "1단계 — 충격 과다 러닝: jerk_p95_norm이 대략 1.0 이상이거나 acc_z_std_norm이 대략 0.6 이상이면 "
+    "지속적인 충격 과다로 판단합니다. 여기에 DTW의 amplitudeDev가 뚜렷한 양수(평소보다 과도하게 무겁게 착지)이면 "
+    "더 강한 근거가 됩니다.\n\n"
     "2단계 — 발끌기 러닝 vs 좁은 보폭 러닝 (이 둘은 원인이 다르므로 반드시 아래 기준으로 구분하고, "
     "한쪽 조건만 뚜렷하다면 두 태그를 동시에 선택하지 마세요):\n"
-    "  (a) 발끌기 러닝 = '다리를 충분히 들어올리지 못하는 문제'. "
-    "스윙/스탠스 자이로 비율(swing_stance_gyro_ratio)이 낮고(1에 가깝거나 그 이하), "
-    "수평 마찰 진동(horizontal_jerk_std)이 높을 때 선택합니다. "
-    "이 조건에 해당하더라도 케이던스(cadence_spm)가 160spm을 뚜렷하게 넘지 않는다면 '좁은 보폭 러닝'은 함께 선택하지 마세요.\n"
-    "  (b) 좁은 보폭 러닝 = '보폭 자체가 짧아 발을 빠르게 굴러야만 하는 문제'. "
-    "케이던스(cadence_spm)가 160spm을 뚜렷하게 초과하면서 동시에 종종걸음 지수(choppy_step_index)도 함께 높을 때, "
-    "또는 DTW의 cadenceDev가 뚜렷한 음수(평소보다 보폭이 좁고 발이 바쁨)일 때만 선택합니다. "
-    "케이던스가 평범한데 choppy_step_index만 높다면(수직 진폭 산출 노이즈일 수 있음) 이 태그를 선택하지 마세요.\n\n"
-    "3단계 — 페이스 변화 러닝: 전/후반부 에너지 비율(front_back_ratio)이 1.0에서 뚜렷하게 벗어나거나 "
-    "에너지 변동계수(acc_mag_cv)가 크며, DTW의 trend가 worsening/improving이거나 타임라인이 요동칠 때 선택합니다.\n\n"
+    "  (a) 좁은 보폭 러닝 = '보폭 자체가 짧아 발을 빠르게 굴러야만 하는 문제'. "
+    "케이던스(cadence_spm)가 180spm 이상이거나, 케이던스가 160spm을 뚜렷하게 초과하면서 choppy_step_index가 15 이상이면 우선 선택합니다. "
+    "이때 수직 가속 범위(acc_z_range)가 반드시 좁을 필요는 없습니다. 빠른 짧은 보폭에서는 swing_stance_gyro_ratio가 낮거나 horizontal_jerk_std_norm이 높게 보일 수 있으므로, "
+    "케이던스/choppy 신호가 강하면 이를 발끌기가 아니라 좁은 보폭으로 해석하세요.\n"
+    "  (b) 발끌기 러닝 = '다리를 충분히 들어올리지 못하는 문제'. 아래 정규화 지표들을 종합해서 판단하세요 "
+    "(하나만 살짝 낮다고 선택하지 말고, 여러 지표가 함께 낮을 때만 선택):\n"
+    "    - swing_stance_gyro_ratio가 대략 0.45 미만 (스윙 구간에서 다리 회전이 스탠스 구간과 별 차이 없을 만큼 약함)\n"
+    "    - jerk_p95_norm이 대략 0.7 미만 (충격 과다 러닝의 상대 충격 수준에 비해 뚜렷하게 낮음)\n"
+    "    - acc_z_std_norm이 대략 0.5 미만이거나, 절대 acc_z_range가 다른 abnormal 구간 대비 눈에 띄게 좁음\n"
+    "  충격 과다 러닝/페이스 변화 러닝 지표(jerk_p95_norm, acc_z_std_norm)가 더 뚜렷하게 높으면 그쪽을 우선하고 "
+    "'발끌기 러닝'을 추가하지 마세요. "
+    "동시에 케이던스(cadence_spm)가 180spm 미만이고 choppy_step_index가 15 미만일 때만 선택합니다. "
+    "좁은 보폭 조건이 뚜렷하면 '발끌기 러닝'을 함께 선택하지 마세요.\n\n"
+    "3단계 — 페이스 변화 러닝: 아래 중 하나라도 뚜렷하면 선택합니다(모두 만족할 필요 없음):\n"
+    "  - 전/후반부 에너지 비율(front_back_ratio)이 1.0에서 뚜렷하게 벗어나거나 에너지 변동계수(acc_mag_cv)가 크다 "
+    "(구간 내에서 페이스가 들쭉날쭉하다는 뜻)\n"
+    "  - DTW의 trend가 worsening 또는 improving이다 (평소 폼 대비 유사도가 한 방향으로 계속 변하고 있다는 뜻이므로 "
+    "그 자체로 페이스/폼이 시간에 따라 변화하고 있다는 강한 근거입니다)\n"
+    "  - 유사도 타임라인(timeline)이 뚜렷하게 하락/상승 추세를 보이거나 요동친다\n"
+    "  - DTW의 shapeDev가 뚜렷하게 크다 (걸음 형태 자체가 평소 대비 달라지고 있음)\n"
+    "다른 태그(충격 과다/발끌기/좁은 보폭)로 이미 충분히 설명되는 변화라면 중복으로 추가하지 않아도 됩니다.\n\n"
     "4단계 — 안정 러닝: 1~3단계의 문제 지표 중 어느 것도 뚜렷하게 관찰되지 않고 DTW status가 stable에 가까울 때만 선택합니다. "
     "'안정 러닝'은 '문제 없음'을 의미하므로 다른 문제 태그와 절대 동시에 선택할 수 없으며, "
     "1~3단계 중 하나라도 조건을 충족했다면 반드시 제외하세요.\n\n"
@@ -289,7 +328,7 @@ def _call_gemini(prompt: str) -> _CoachingOutput | None:
 def _call_openai(prompt: str) -> _CoachingOutput | None:
     client = OpenAI(api_key=settings.OPENAI_API_KEY)
     response = client.beta.chat.completions.parse(
-        model="gemini-3.1-pro-preview",
+        model="gemini-3.1-flash-lite",
         messages=[
             {"role": "system", "content": _SYSTEM_INSTRUCTION},
             {"role": "user", "content": prompt},
