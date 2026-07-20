@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, Integer, Date, DateTime, func
+from sqlalchemy import Boolean, Column, String, Integer, Date, DateTime, func, text
 from sqlalchemy.dialects.postgresql import UUID
 
 from app.db.base import Base
@@ -16,4 +16,7 @@ class User(Base):
     birth_date = Column(Date, nullable=False)    # YYYY-MM-DD 저장
     height = Column(Integer, nullable=False)     # cm
     weight = Column(Integer, nullable=False)     # kg
+    is_calibrated = Column(  # DTW 캘리브레이션 완료 여부
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
     created_at = Column(DateTime(timezone=True), server_default=func.now())

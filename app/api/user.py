@@ -39,7 +39,7 @@ def login(payload: UserLogin, db: Session = Depends(get_db)):
         raise InvalidCredentialsError()
 
     token = create_access_token({"sub": str(user.id), "user_id": user.user_id})
-    user_info = UserInfo(id=str(user.id), user_id=user.user_id, nickname=user.nickname)
+    user_info = UserInfo.model_validate(user)
     token_response = TokenResponse(access_token=token, token_type="bearer", user=user_info)
     return SuccessResponse(data=token_response)
 

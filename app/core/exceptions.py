@@ -35,6 +35,11 @@ class UnauthorizedError(ServiceError):
         super().__init__(message, status_code=401)
 
 
+class DtwNotFoundError(ServiceError):
+    def __init__(self, message: str = "저장된 DTW 캘리브레이션이 없습니다."):
+        super().__init__(message, status_code=404)
+
+
 class GaitSaveError(ServiceError):
     def __init__(self, message: str):
         super().__init__(message, status_code=500)
