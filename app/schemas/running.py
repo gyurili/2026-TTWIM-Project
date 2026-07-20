@@ -1,25 +1,31 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+
+class RoutePoint(BaseModel):
+    latitude: float
+    longitude: float
+    timestamp: int
 
 
 class RunningSessionCreate(BaseModel):
-    start_location: dict[str, Any] | None = None
-    end_location: dict[str, Any] | None = None
-    start_time: datetime
-    end_time: datetime
-    total_distance_m: Decimal
-    total_duration_sec: int
+    mode: Literal["outdoor", "indoor"]
+    route: list[RoutePoint] | None = None
+    started_at: int
+    ended_at: int
+    duration_sec: Annotated[int, Field(alias="durationSec")]
+    distance_meters: Annotated[float, Field(alias="distanceMeters")]
 
 
 class RunningSessionOut(BaseModel):
     session_id: int
     user_id: UUID
-    start_location: dict[str, Any] | None = None
-    end_location: dict[str, Any] | None = None
+    mode: str
+    route: list[dict[str, Any]] | None = None
     start_time: datetime
     end_time: datetime
     total_distance_m: Decimal
