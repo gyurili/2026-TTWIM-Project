@@ -8,8 +8,8 @@ class RunningSession(Base):
 
     session_id         = Column(BigInteger, primary_key=True, autoincrement=True)
     user_id            = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    start_location     = Column(JSONB)
-    end_location       = Column(JSONB)
+    mode               = Column(String(10), nullable=False)
+    route              = Column(JSONB)
     start_time         = Column(DateTime, nullable=False)
     end_time           = Column(DateTime, nullable=False)
     total_distance_m   = Column(Numeric(10, 2), nullable=False)

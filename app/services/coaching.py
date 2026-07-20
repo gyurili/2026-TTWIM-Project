@@ -66,6 +66,27 @@ def extract_stats(channels: dict[str, list[float]]) -> dict:
     }
 
 
+def _build_raw_prompt(channels: dict[str, list[float]], ratio: float, dtw: dict) -> str:
+    lines = [
+        "[원본 row 데이터 (비정상 판정 구간의 모든 센서값)]",
+        *[f"- {ch}: {channels[ch]}" for ch in ["acc_x", "acc_y", "acc_z", "gyro_x", "gyro_y", "gyro_z"]],
+        "",
+        f"- 비정상 비율: {ratio:.0%}",
+        "",
+        "[개인 기준선 대비 편차 (DTW, 이 사용자의 평소 패턴 대비 상대적 이탈)]",
+        f"- 상태: {dtw['status']} ({_DTW_STATUS_DESC.get(dtw['status'], dtw['status'])})",
+        f"- 평균 유사도: {dtw['avgSimilarity']} (0~100, 높을수록 평소와 동일)",
+        f"- 추세: {dtw['trend']} ({_DTW_TREND_DESC.get(dtw['trend'], dtw['trend'])})",
+        f"- 걸음 형태 편차(shapeDev): {dtw['shapeDev']} (0에 가까울수록 평소와 동일, 대략 2 이상이면 뚜렷한 형태 변화)",
+        f"- 속도 편차(cadenceDev): {dtw['cadenceDev']} (양수=감속/걸음이 길어짐, 음수=가속/걸음이 짧아짐, 대략 ±3 이상이면 뚜렷한 변화)",
+        f"- 발 움직임 편차(amplitudeDev): {dtw['amplitudeDev']} (양수=평소보다 크게 움직임, 음수=평소보다 덜 듦)",
+        f"- 유사도 타임라인(3초 간격): {dtw['timeline']} (완만한 하락=점진적 피로, 급락=갑작스러운 폼 붕괴/이상 상황)",
+        "",
+        "위 수치를 종합적으로 분석하여 사용자의 러닝 자세를 과학적으로 교정해주세요.",
+    ]
+    return "\n".join(lines)
+
+
 def _build_prompt(stats: dict, ratio: float, dtw: dict) -> str:
     lines = [
         "[센서 통계 (ML 모델이 비정상으로 판정한 구간)]",
@@ -170,4 +191,9 @@ def _call_llm(prompt: str) -> tuple[str, list[str]] | None:
 def generate_coaching(channels: dict[str, list[float]], ratio: float, dtw: dict) -> tuple[str, list[str]] | None:
     stats = extract_stats(channels)
     prompt = _build_prompt(stats, ratio, dtw)
+    return _call_llm(prompt)
+
+
+def generate_coaching_raw(channels: dict[str, list[float]], ratio: float, dtw: dict) -> tuple[str, list[str]] | None:
+    prompt = _build_raw_prompt(channels, ratio, dtw)
     return _call_llm(prompt)
