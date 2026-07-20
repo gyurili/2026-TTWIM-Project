@@ -4,7 +4,7 @@ from app.models.user import User
 from app.schemas.common import SuccessResponse
 from app.schemas.predict import PredictBatchRequest, PredictBatchResponse
 from app.services import predict as service
-from app.services.coaching import generate_coaching_raw
+from app.services.coaching import generate_coaching
 
 router = APIRouter(tags=["Predict"])
 
@@ -26,7 +26,7 @@ def predict_heel_strike(data: PredictBatchRequest, current_user: User = Depends(
 
         ratio = len(abnormal_indices) / len(data.steps)
         dtw = data.dtwContext.model_dump()
-        coaching_result = generate_coaching_raw(channels, ratio, dtw)
+        coaching_result = generate_coaching(channels, ratio, dtw)
 
         if coaching_result is not None:
             text, tags = coaching_result
