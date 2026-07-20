@@ -12,6 +12,7 @@ from app.db.base import Base
 from app.core.exceptions import ServiceError
 import app.models.imu
 import app.models.running
+import app.models.dtw
 
 
 logger = logging.getLogger(__name__)

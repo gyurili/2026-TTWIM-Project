@@ -23,6 +23,7 @@ class UserOut(BaseModel):
     birth_date: date
     height: int
     weight: int
+    is_calibrated: bool = False
     created_at: Optional[datetime]
 
     class Config:
@@ -38,6 +39,7 @@ class UserInfo(BaseModel):
     id: UUID
     user_id: str
     nickname: str
+    is_calibrated: bool = False
 
     class Config:
         from_attributes = True
