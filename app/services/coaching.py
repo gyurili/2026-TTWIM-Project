@@ -1,5 +1,6 @@
 import json
 import logging
+
 import numpy as np
 from scipy.signal import find_peaks
 from google import genai
@@ -25,11 +26,10 @@ _DTW_TREND_DESC = {
 
 # --- 수치 안정성 관련 상수 ---
 _EPS = 1e-8
-_DEFAULT_SAMPLE_RATE_HZ = 50.0          # channels 에 샘플레이트 정보가 없어 임시로 가정하는 값(★아래 설명 참고)
+_DEFAULT_SAMPLE_RATE_HZ = 50.0          # channels 에 샘플레이트 정보가 없어 임시로 가정하는 값
 _MIN_SECONDS_REQUIRED = 1.5             # 최소 이 정도 길이(초)는 있어야 걸음 관련 지표를 신뢰할 수 있음
 _MIN_STEPS_REQUIRED = 2                 # 이 미만이면 "달리고 있었다"고 보기 어려움
 _LOW_MOTION_ACC_Z_STD = 0.05            # 이 이하이면 정지/거치 상태로 간주(g 단위 가정)
-_MIN_ACC_Z_RANGE_FLOOR = 0.05           # choppy_step_index 등 분모 폭주 방지용 하한
 _MIN_GYRO_FLOOR = 1e-3                  # swing/stance 비율 분모 폭주 방지용 하한
 _MIN_STEP_DISTANCE_SECONDS = 0.25       # 240spm보다 빠른 피크는 한 걸음으로 보지 않음
 _STEP_PROMINENCE_RATIO = 0.12           # 수직 가속 범위 대비 최소 착지 피크 두드러짐
@@ -136,6 +136,7 @@ def extract_stats(
     acc_z_centered = acc_z - acc_z_mean
     duration_sec = total_frames / sample_rate_hz
 
+    # --- 3) 보폭 및 케이던스 리듬 분석 (좁은 보폭/종종걸음 판별 지표) ---
     min_peak_distance = max(1, int(sample_rate_hz * _MIN_STEP_DISTANCE_SECONDS))
     peak_prominence = max(_MIN_STEP_PROMINENCE, acc_z_range_robust * _STEP_PROMINENCE_RATIO)
     step_peaks, _ = find_peaks(
@@ -248,7 +249,7 @@ def _build_prompt(stats: dict, ratio: float, dtw: dict) -> str:
         "[개인 기준선 대비 편차 (DTW)]",
         f"- 상태: {dtw['status']} ({_DTW_STATUS_DESC.get(dtw['status'], dtw['status'])})",
         f"- 평균 유사도: {dtw['avgSimilarity']}",
-        f"- 추세: {dtw['trend']}",
+        f"- 추세: {dtw['trend']} ({_DTW_TREND_DESC.get(dtw['trend'], dtw['trend'])})",
         f"- 걸음 형태 편차(shapeDev): {dtw['shapeDev']}",
         f"- 속도 편차(cadenceDev): {dtw['cadenceDev']} (음수일수록 평소보다 발을 바쁘게 구르는 종종걸음 패턴)",
         f"- 발 움직임 편차(amplitudeDev): {dtw['amplitudeDev']} (음수일수록 평소보다 발을 안 드는 패턴)",
@@ -328,7 +329,7 @@ def _call_gemini(prompt: str) -> _CoachingOutput | None:
 def _call_openai(prompt: str) -> _CoachingOutput | None:
     client = OpenAI(api_key=settings.OPENAI_API_KEY)
     response = client.beta.chat.completions.parse(
-        model="gemini-3.1-flash-lite",
+        model="gpt-4o-mini",
         messages=[
             {"role": "system", "content": _SYSTEM_INSTRUCTION},
             {"role": "user", "content": prompt},
