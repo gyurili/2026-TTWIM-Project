@@ -43,3 +43,13 @@ class DtwNotFoundError(ServiceError):
 class GaitSaveError(ServiceError):
     def __init__(self, message: str):
         super().__init__(message, status_code=500)
+
+
+class SessionNotFoundError(ServiceError):
+    def __init__(self, message: str = "러닝 세션을 찾을 수 없습니다."):
+        super().__init__(message, status_code=404)
+
+
+class SessionForbiddenError(ServiceError):
+    def __init__(self, message: str = "본인의 세션이 아닙니다."):
+        super().__init__(message, status_code=403)

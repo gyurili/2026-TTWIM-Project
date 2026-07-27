@@ -55,11 +55,6 @@ class RunningSessionOut(CamelModel):
     windows: list[SessionWindowOut] = []
 
 
-class RunningFeedbackCreate(CamelModel):
-    final_feedback: str
-    tag_ratio: dict[str, Any]
-
-
 class RunningFeedbackOut(CamelModel):
     feedback_id: int
     session_id: int
