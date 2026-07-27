@@ -1,5 +1,6 @@
 from sqlalchemy import Column, BigInteger, Integer, String, Text, DateTime, Numeric, ForeignKey, func
 from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.orm import relationship
 from app.db.base import Base
 
 
@@ -16,20 +17,20 @@ class RunningSession(Base):
     total_duration_sec = Column(Integer, nullable=False)
     created_at         = Column(DateTime, server_default=func.now())
 
+    windows = relationship("SessionWindow", backref="session", cascade="all, delete-orphan")
+
 
 class SessionWindow(Base):
     __tablename__ = "session_windows"
 
     window_id        = Column(BigInteger, primary_key=True, autoincrement=True)
     session_id       = Column(BigInteger, ForeignKey("running_sessions.session_id", ondelete="CASCADE"), nullable=False)
-    prediction       = Column(String(20), nullable=False)
-    tag              = Column(String(50))
+    predictions      = Column(JSONB, nullable=False)   # 윈도우 5개 예측 결과 배열
+    tags             = Column(JSONB)                   # 코칭 태그 배열
     feedback_text    = Column(String(2000))
     dtw_context      = Column(JSONB)
-    window_start_time = Column(DateTime, nullable=False)
-    window_end_time   = Column(DateTime, nullable=False)
-    gps_start        = Column(JSONB)
-    gps_end          = Column(JSONB)
+    window_start_time = Column(BigInteger, nullable=False)  # epoch ms, route[].timestamp와 동일 기준
+    window_end_time   = Column(BigInteger, nullable=False)
 
 
 class RunningFeedback(Base):

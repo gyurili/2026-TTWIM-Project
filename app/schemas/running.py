@@ -1,27 +1,48 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Annotated, Any, Literal
+from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from app.schemas.base import CamelModel
 
 
-class RoutePoint(BaseModel):
+class RoutePoint(CamelModel):
     latitude: float
     longitude: float
     timestamp: int
 
 
-class RunningSessionCreate(BaseModel):
+class SessionWindowCreate(CamelModel):
+    predictions: list[str]
+    tags: list[str] = []
+    feedback_text: str | None = None
+    dtw_context: dict[str, Any] | None = None
+    window_start_time: int  # epoch ms, route[].timestamp와 동일 기준
+    window_end_time: int
+
+
+class RunningSessionCreate(CamelModel):
     mode: Literal["outdoor", "indoor"]
     route: list[RoutePoint] | None = None
     started_at: int
     ended_at: int
-    duration_sec: Annotated[int, Field(alias="durationSec")]
-    distance_meters: Annotated[float, Field(alias="distanceMeters")]
+    duration_sec: int
+    distance_meters: float
+    windows: list[SessionWindowCreate] = []
 
 
-class RunningSessionOut(BaseModel):
+class SessionWindowOut(CamelModel):
+    window_id: int
+    session_id: int
+    predictions: list[str]
+    tags: list[str] = []
+    feedback_text: str | None = None
+    dtw_context: dict[str, Any] | None = None
+    window_start_time: int
+    window_end_time: int
+
+
+class RunningSessionOut(CamelModel):
     session_id: int
     user_id: UUID
     mode: str
@@ -31,47 +52,18 @@ class RunningSessionOut(BaseModel):
     total_distance_m: Decimal
     total_duration_sec: int
     created_at: datetime | None = None
-
-    model_config = {"from_attributes": True}
-
-
-class SessionWindowCreate(BaseModel):
-    prediction: str
-    tag: str | None = None
-    feedback_text: str | None = None
-    dtw_context: dict[str, Any] | None = None
-    window_start_time: datetime
-    window_end_time: datetime
-    gps_start: dict[str, Any] | None = None
-    gps_end: dict[str, Any] | None = None
+    windows: list[SessionWindowOut] = []
 
 
-class SessionWindowOut(BaseModel):
-    window_id: int
-    session_id: int
-    prediction: str
-    tag: str | None = None
-    feedback_text: str | None = None
-    dtw_context: dict[str, Any] | None = None
-    window_start_time: datetime
-    window_end_time: datetime
-    gps_start: dict[str, Any] | None = None
-    gps_end: dict[str, Any] | None = None
-
-    model_config = {"from_attributes": True}
-
-
-class RunningFeedbackCreate(BaseModel):
+class RunningFeedbackCreate(CamelModel):
     final_feedback: str
     tag_ratio: dict[str, Any]
 
 
-class RunningFeedbackOut(BaseModel):
+class RunningFeedbackOut(CamelModel):
     feedback_id: int
     session_id: int
     user_id: UUID
     final_feedback: str
     tag_ratio: dict[str, Any]
     created_at: datetime | None = None
-
-    model_config = {"from_attributes": True}
