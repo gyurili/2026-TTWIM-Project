@@ -37,7 +37,7 @@ class RunningFeedback(Base):
     __tablename__ = "running_feedback"
 
     feedback_id    = Column(BigInteger, primary_key=True, autoincrement=True)
-    session_id     = Column(BigInteger, ForeignKey("running_sessions.session_id", ondelete="CASCADE"), nullable=False)
+    session_id     = Column(BigInteger, ForeignKey("running_sessions.session_id", ondelete="CASCADE"), nullable=False, unique=True)
     user_id        = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     final_feedback = Column(Text, nullable=False)
     tag_ratio      = Column(JSONB, nullable=False)
