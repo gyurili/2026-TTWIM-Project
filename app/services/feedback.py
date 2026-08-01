@@ -6,17 +6,19 @@ from statistics import mean
 from google import genai
 from langsmith import traceable
 from pydantic import BaseModel
+from sqlalchemy import text as sa_text
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.crud.running import get_feedback_by_session, get_windows_by_session, upsert_feedback
-from app.models.running import SessionWindow
+from app.crud.running import get_feedback_by_session, get_session, get_windows_by_session, upsert_feedback
+from app.models.running import RunningSession, SessionWindow
 from app.schemas.running import RunningFeedbackOut
 from app.services.knowledge import get_kb, pick_docs, validate_sources
 
 logger = logging.getLogger(__name__)
 
 FALLBACK_TEXT = "이번 러닝 세션을 분석할 수 없었습니다. 다음 러닝 후 다시 시도해주세요."
+INSUFFICIENT_DATA_TEXT = "이번 러닝 세션은 분석할 수 있는 데이터가 부족합니다. 트래킹 상태를 확인한 뒤 다음 러닝에서 다시 시도해주세요."
 
 
 class _FeedbackOutput(BaseModel):
@@ -30,12 +32,18 @@ def select_dominant_tags(tag_ratio: dict[str, float], threshold: float = 0.20, m
     return [t for t, _ in picked]
 
 
+def _dtw_position_label(idx: int, length: int) -> str:
+    ratio = idx / max(length - 1, 1)
+    return "초반" if ratio < 1 / 3 else "중반" if ratio < 2 / 3 else "후반"
+
+
 @traceable(name="summarize_dtw")
 def summarize_dtw(windows: list[SessionWindow]) -> dict:
     seq = [(w.window_start_time, w.dtw_context) for w in windows if w.dtw_context and "avgSimilarity" in w.dtw_context]
     if not seq:
         return {"trend": "no_data"}
     sims = [ctx["avgSimilarity"] for _, ctx in seq]
+    times = [t for t, _ in seq]
     third = max(len(sims) // 3, 1)
     start_avg, end_avg = round(mean(sims[:third]), 2), round(mean(sims[-third:]), 2)
     peak_idx, trough_idx = sims.index(max(sims)), sims.index(min(sims))
@@ -44,18 +52,52 @@ def summarize_dtw(windows: list[SessionWindow]) -> dict:
         "end_avg": end_avg,
         "trend": "increasing" if end_avg > start_avg else "decreasing" if end_avg < start_avg else "stable",
         "peak_similarity": round(sims[peak_idx], 2),
+        "peak_position": _dtw_position_label(peak_idx, len(sims)),
+        "peak_time": times[peak_idx],
         "trough_similarity": round(sims[trough_idx], 2),
+        "trough_position": _dtw_position_label(trough_idx, len(sims)),
+        "trough_time": times[trough_idx],
     }
 
 
 @traceable(name="resolve_docs")
-def resolve_docs(tag_ratio: dict, dominant_tags: list[str], kb: dict) -> tuple[list[dict], str]:
-    if tag_ratio.get("안정 러닝", 0) >= 0.7 or not dominant_tags:
-        return pick_docs("안정 러닝", kb), "encouragement"
-    docs = [d for t in dominant_tags for d in pick_docs(t, kb)]
+def resolve_docs(tag_ratio: dict, dominant_tags: list[str], kb: dict) -> tuple[list[dict], str, list[str]]:
+    if tag_ratio.get("안정 러닝", 0) >= 0.7:
+        return pick_docs("안정 러닝", kb), "encouragement", []
+
+    tags = dominant_tags
+    if not tags:
+        # 20% 이상인 단일 우세 태그는 없지만 여러 문제 태그가 골고루 섞여있을 수 있으므로
+        # 비율 상위 태그로 보정해, 그런 세션이 무조건 "안정" 처리로 새지 않게 한다.
+        scattered = sorted(
+            ((t, r) for t, r in tag_ratio.items() if t and t != "안정 러닝"),
+            key=lambda x: -x[1],
+        )[:2]
+        tags = [t for t, _ in scattered]
+
+    docs = [d for t in tags for d in pick_docs(t, kb)]
     if not docs:
-        return pick_docs("안정 러닝", kb), "encouragement"
-    return docs, "corrective"
+        return pick_docs("안정 러닝", kb), "encouragement", []
+    return docs, "corrective", tags
+
+
+def _summarize_session(session: RunningSession) -> dict:
+    distance_m = float(session.total_distance_m)
+    duration_sec = session.total_duration_sec
+    duration_min, remain_sec = divmod(duration_sec, 60)
+
+    pace_display = "N/A"
+    if distance_m > 0:
+        pace_sec_per_km = round(duration_sec / (distance_m / 1000))
+        pace_min, pace_sec = divmod(pace_sec_per_km, 60)
+        pace_display = f"{pace_min}분 {pace_sec}초/km"
+
+    return {
+        "distance_km": round(distance_m / 1000, 2),
+        "duration_display": f"{duration_min}분 {remain_sec}초",
+        "pace_display": pace_display,
+        "mode_label": "야외 러닝" if session.mode == "outdoor" else "실내 러닝",
+    }
 
 
 def _coaching_history(windows: list[SessionWindow]) -> list[dict]:
@@ -72,6 +114,7 @@ def _coaching_history(windows: list[SessionWindow]) -> list[dict]:
 
 def _build_feedback_prompt(
     session_id: int,
+    session_summary: dict,
     tag_ratio: dict,
     dominant_tags: list[str],
     dtw_summary: dict,
@@ -82,16 +125,20 @@ def _build_feedback_prompt(
     lines = [
         "[러닝 세션 요약]",
         f"- 세션 ID: {session_id}",
+        f"- 거리: {session_summary['distance_km']}km",
+        f"- 시간: {session_summary['duration_display']}",
+        f"- 평균 페이스: {session_summary['pace_display']}",
+        f"- 러닝 종류: {session_summary['mode_label']}",
         f"- 태그 비율: {json.dumps(tag_ratio, ensure_ascii=False)}",
         f"- 주요 태그: {', '.join(dominant_tags) if dominant_tags else '없음'}",
-        f"- 모드: {prompt_mode}",
+        f"- 코칭 모드: {prompt_mode}",
         "",
         "[DTW 유사도 추이]",
         f"- 전반부 평균: {dtw_summary.get('start_avg', 'N/A')}",
         f"- 후반부 평균: {dtw_summary.get('end_avg', 'N/A')}",
         f"- 추세: {dtw_summary.get('trend', 'N/A')}",
-        f"- 최고 유사도: {dtw_summary.get('peak_similarity', 'N/A')}",
-        f"- 최저 유사도: {dtw_summary.get('trough_similarity', 'N/A')}",
+        f"- 최고 유사도: {dtw_summary.get('peak_similarity', 'N/A')} ({dtw_summary.get('peak_position', 'N/A')})",
+        f"- 최저 유사도: {dtw_summary.get('trough_similarity', 'N/A')} ({dtw_summary.get('trough_position', 'N/A')})",
         "",
         "[참고 문헌]",
         *[
@@ -163,11 +210,22 @@ def _call_llm(prompt: str) -> tuple[str, list[str]] | None:
 def generate_session_feedback(
     db: Session, session_id: int, user_id, force_regenerate: bool = False
 ) -> RunningFeedbackOut:
+    # 동일 세션에 대한 동시 요청이 각자 LLM을 중복 호출하지 않도록 트랜잭션 범위 락으로 직렬화한다.
+    # 커밋/롤백 시 자동 해제되므로 별도 unlock이 필요 없다.
+    db.execute(sa_text("SELECT pg_advisory_xact_lock(:sid)"), {"sid": session_id})
+
     existing = get_feedback_by_session(db, session_id)
     if existing and not force_regenerate:
         return RunningFeedbackOut.model_validate(existing)
 
     windows = get_windows_by_session(db, session_id)
+    if not windows:
+        data = {"final_feedback": INSUFFICIENT_DATA_TEXT, "tag_ratio": {}}
+        fb = upsert_feedback(db, session_id, user_id, data)
+        return RunningFeedbackOut.model_validate(fb)
+
+    session = get_session(db, session_id)
+    session_summary = _summarize_session(session)
 
     all_tags = [t for w in windows for t in (w.tags or [])]
     total = len(all_tags) or 1
@@ -177,9 +235,9 @@ def generate_session_feedback(
     dtw_summary = summarize_dtw(windows)
     coaching_history = _coaching_history(windows)
     kb = get_kb()
-    docs, prompt_mode = resolve_docs(tag_ratio, dominant_tags, kb)
+    docs, prompt_mode, effective_tags = resolve_docs(tag_ratio, dominant_tags, kb)
     prompt = _build_feedback_prompt(
-        session_id, tag_ratio, dominant_tags, dtw_summary, docs, prompt_mode, coaching_history,
+        session_id, session_summary, tag_ratio, effective_tags, dtw_summary, docs, prompt_mode, coaching_history,
     )
 
     llm_result = _call_llm(prompt)
