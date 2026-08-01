@@ -1,3 +1,5 @@
+import os
+
 from pydantic_settings import BaseSettings
 
 
@@ -19,6 +21,11 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str = ""
     OPENAI_API_KEY: str = ""
 
+    # LangSmith
+    LANGSMITH_TRACING: bool = False
+    LANGSMITH_API_KEY: str = ""
+    LANGSMITH_PROJECT: str = "azas-coaching"
+
     @property
     def DATABASE_URL(self) -> str:
         return (
@@ -31,3 +38,8 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+if settings.LANGSMITH_TRACING:
+    os.environ.setdefault("LANGSMITH_TRACING", "true")
+    os.environ.setdefault("LANGSMITH_API_KEY", settings.LANGSMITH_API_KEY)
+    os.environ.setdefault("LANGSMITH_PROJECT", settings.LANGSMITH_PROJECT)
