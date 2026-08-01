@@ -354,10 +354,10 @@ def _build_feedback_prompt(
     lines += [
         "",
         "위 정보를 바탕으로 아래 항목에 맞춰 러닝 세션 종합 피드백을 JSON으로 작성해주세요:",
-        "- summary: 전체 세션에 대한 1~2문장 핵심 요약",
-        "- strengths: 잘한 점 1~2개",
-        "- improvements: 개선점과 구체적 교정 방법 1~2개",
-        "- next_step: 다음 러닝을 위한 구체적 목표나 조언 (1문장)",
+        "- summary: 전체 세션에 대한 최소 3문장 이상 핵심 요약"
+        "- strengths: 잘한 점 최소 3개 이상",
+        "- improvements: 개선점과 구체적 교정 방법 3개 이상",
+        "- next_step: 다음 러닝을 위한 구체적 목표나 조언 (3장 이상)",
     ]
     return "\n".join(lines)
 
