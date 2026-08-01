@@ -35,5 +35,5 @@ def create_session_feedback(
         raise SessionNotFoundError()
     if session.user_id != current_user.id:
         raise SessionForbiddenError()
-    result = generate_session_feedback(db, session_id, current_user.id, force_regenerate)
+    result = generate_session_feedback(db, session, current_user.id, current_user, force_regenerate)
     return SuccessResponse(data=result)
