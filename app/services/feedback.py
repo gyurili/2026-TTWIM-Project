@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.crud.running import get_feedback_by_session, get_windows_by_session, upsert_feedback
-from app.models.running import RunningSession, SessionWindow
+from app.models.running import RunningFeedback, RunningSession, SessionWindow
 from app.schemas.running import RunningFeedbackOut
 from app.services.knowledge import get_kb, pick_docs
 
@@ -26,6 +26,11 @@ INSUFFICIENT_DATA_TEXT = "이번 러닝 세션은 분석할 수 있는 데이터
 _MAX_COACHING_HISTORY = 10
 _DTW_SEGMENTS = 5
 _MAX_HISTORY_FEEDBACK_CHARS = 80  # 구간별 피드백 원문이 길 때 프롬프트 비대화를 막기 위한 절삭 길이
+
+# 타임라인 구간의 대표 태그를 정할 때 쓰는 우선순위. "안정 러닝"은 다른 태그와 동시에 나오지 않는
+# 값이라 별도 취급하고(_dominant_tag 참고), 문제 태그가 여러 개인 window에서는 이 순서로 하나를 고른다.
+_STABLE_TAG = "안정 러닝"
+_ISSUE_TAG_PRIORITY = ["충격 과다 러닝", "발끌기 러닝", "좁은 보폭 러닝", "페이스 변화 러닝"]
 
 # LLM 호출 타임아웃/재시도 설정.
 _LLM_TIMEOUT_MS = 60_000
@@ -197,6 +202,60 @@ def _summarize_session(session: RunningSession) -> dict:
         "pace_display": pace_display,
         "mode_label": "야외 러닝" if session.mode == "outdoor" else "실내 러닝",
     }
+
+
+def _dominant_tag(tags: list[str]) -> str | None:
+    """window의 대표 태그 하나를 고른다. '안정 러닝'은 다른 태그와 함께 나오지 않으므로 그대로 쓰고,
+    문제 태그가 여러 개면 _ISSUE_TAG_PRIORITY 순서를 따른다."""
+    if not tags:
+        return None
+    if _STABLE_TAG in tags:
+        return _STABLE_TAG
+    for t in _ISSUE_TAG_PRIORITY:
+        if t in tags:
+            return t
+    return tags[0]
+
+
+def _build_timeline(session: RunningSession, windows: list[SessionWindow]) -> list[dict]:
+    """대표 태그가 이어지는 구간끼리 묶어 세션 시작 기준 분 단위 타임라인을 만든다."""
+    if not windows:
+        return []
+
+    session_start_ms = int(session.start_time.timestamp() * 1000)
+    segments: list[dict] = []
+    for w in windows:
+        tag = _dominant_tag(w.tags or [])
+        if tag is None:
+            continue
+        if segments and segments[-1]["tag"] == tag:
+            segments[-1]["end_ms"] = w.window_end_time
+        else:
+            segments.append({"tag": tag, "start_ms": w.window_start_time, "end_ms": w.window_end_time})
+
+    return [
+        {
+            "tag": seg["tag"],
+            "start_min": round((seg["start_ms"] - session_start_ms) / 60000),
+            "end_min": round((seg["end_ms"] - session_start_ms) / 60000),
+        }
+        for seg in segments
+    ]
+
+
+def _to_feedback_out(fb: RunningFeedback, session_summary: dict) -> RunningFeedbackOut:
+    """session_summary는 RunningSession에서 쿼리 없이 즉석 계산하는 값이라 저장하지 않고 매번 새로 채운다.
+    timeline은 window 전체를 다시 읽어야 하는 비용이 있어 생성 시점에 RunningFeedback에 캐싱해두고 그대로 재사용한다."""
+    return RunningFeedbackOut(
+        feedback_id=fb.feedback_id,
+        session_id=fb.session_id,
+        user_id=fb.user_id,
+        final_feedback=fb.final_feedback,
+        tag_ratio=fb.tag_ratio,
+        session_summary=session_summary,
+        timeline=fb.timeline or [],
+        created_at=fb.created_at,
+    )
 
 
 def _coaching_history(windows: list[SessionWindow], limit: int = _MAX_COACHING_HISTORY) -> list[dict]:
@@ -447,6 +506,9 @@ def generate_session_feedback(
 ) -> RunningFeedbackOut:
     # 호출부(API 레이어)에서 이미 세션을 조회/검증했으므로 여기서 다시 조회하지 않는다.
     session_id = session.session_id
+    # session_summary는 RunningSession에서 쿼리 없이 즉석 계산하는 값이라 캐시 히트 여부와 무관하게
+    # 매 반환 지점에서 최신값으로 채운다 (timeline은 비용이 있어 RunningFeedback에 캐싱, _to_feedback_out 참고).
+    session_summary = _summarize_session(session)
 
     # 이미 생성된 피드백을 다시 읽어오는 흔한 경로(force_regenerate=False)는 락을 잡을 필요가 없다.
     # 락과 그 락이 걸려 있는 트랜잭션은 LLM 호출이 끝날 때까지 DB 커넥션을 붙잡고 있으므로,
@@ -454,7 +516,7 @@ def generate_session_feedback(
     if not force_regenerate:
         existing = get_feedback_by_session(db, session_id)
         if existing:
-            return RunningFeedbackOut.model_validate(existing)
+            return _to_feedback_out(existing, session_summary)
 
     # 동일 세션에 대한 동시 요청이 각자 LLM을 중복 호출하지 않도록 트랜잭션 범위 락으로 직렬화한다.
     # 커밋/롤백 시 자동 해제되므로 별도 unlock이 필요 없다.
@@ -464,7 +526,7 @@ def generate_session_feedback(
         # 락 대기 중 다른 요청이 먼저 생성을 마쳤을 수 있으므로 다시 확인한다 (double-checked locking).
         existing = get_feedback_by_session(db, session_id)
         if existing:
-            return RunningFeedbackOut.model_validate(existing)
+            return _to_feedback_out(existing, session_summary)
 
     windows = get_windows_by_session(db, session_id)
     if not windows:
@@ -474,11 +536,9 @@ def generate_session_feedback(
             "improvements": [],
             "next_step": "",
         }
-        data = {"final_feedback": json.dumps(no_data, ensure_ascii=False), "tag_ratio": {}}
+        data = {"final_feedback": json.dumps(no_data, ensure_ascii=False), "tag_ratio": {}, "timeline": []}
         fb = upsert_feedback(db, session_id, user_id, data)
-        return RunningFeedbackOut.model_validate(fb)
-
-    session_summary = _summarize_session(session)
+        return _to_feedback_out(fb, session_summary)
 
     all_tags = [t for w in windows for t in (w.tags or [])]
     total = len(all_tags) or 1
@@ -494,6 +554,8 @@ def generate_session_feedback(
         user_profile=user_profile,
     )
 
+    timeline = _build_timeline(session, windows)
+
     llm_result = _call_llm(prompt)
     if llm_result is None:
         fallback_data = {
@@ -502,15 +564,16 @@ def generate_session_feedback(
             "improvements": [],
             "next_step": "다음 러닝 후 다시 시도해주세요.",
         }
-        data = {"final_feedback": json.dumps(fallback_data, ensure_ascii=False), "tag_ratio": tag_ratio}
+        data = {"final_feedback": json.dumps(fallback_data, ensure_ascii=False), "tag_ratio": tag_ratio, "timeline": timeline}
         fb = upsert_feedback(db, session_id, user_id, data)
-        return RunningFeedbackOut.model_validate(fb)
+        return _to_feedback_out(fb, session_summary)
 
     feedback_dict = llm_result.model_dump()
 
     data = {
         "final_feedback": json.dumps(feedback_dict, ensure_ascii=False),
         "tag_ratio": tag_ratio,
+        "timeline": timeline,
     }
     fb = upsert_feedback(db, session_id, user_id, data)
-    return RunningFeedbackOut.model_validate(fb)
+    return _to_feedback_out(fb, session_summary)

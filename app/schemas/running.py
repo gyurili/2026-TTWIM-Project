@@ -65,12 +65,27 @@ class FeedbackDetail(CamelModel):
     next_step: str = ""
 
 
+class SessionSummaryOut(CamelModel):
+    distance_km: float
+    duration_display: str
+    pace_display: str
+    mode_label: str
+
+
+class TimelineSegmentOut(CamelModel):
+    tag: str
+    start_min: int
+    end_min: int
+
+
 class RunningFeedbackOut(CamelModel):
     feedback_id: int
     session_id: int
     user_id: UUID
     final_feedback: FeedbackDetail
     tag_ratio: dict[str, Any]
+    session_summary: SessionSummaryOut
+    timeline: list[TimelineSegmentOut] = []
     created_at: datetime | None = None
 
     @field_validator("final_feedback", mode="before")

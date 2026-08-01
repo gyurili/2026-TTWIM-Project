@@ -41,4 +41,5 @@ class RunningFeedback(Base):
     user_id        = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     final_feedback = Column(Text, nullable=False)
     tag_ratio      = Column(JSONB, nullable=False)
+    timeline       = Column(JSONB, nullable=True)  # 세션 시작 기준 분 단위 구간별 우세 태그. window 재조회 비용 때문에 생성 시점에 캐싱.
     created_at     = Column(DateTime, server_default=func.now())

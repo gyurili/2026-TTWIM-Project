@@ -50,6 +50,7 @@ def upsert_feedback(db: Session, session_id: int, user_id: UUID, data: dict) -> 
     if existing:
         existing.final_feedback = data["final_feedback"]
         existing.tag_ratio = data["tag_ratio"]
+        existing.timeline = data["timeline"]
     else:
         existing = RunningFeedback(session_id=session_id, user_id=user_id, **data)
         db.add(existing)
