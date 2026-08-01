@@ -28,9 +28,7 @@ _DTW_SEGMENTS = 5
 _MAX_HISTORY_FEEDBACK_CHARS = 80  # 구간별 피드백 원문이 길 때 프롬프트 비대화를 막기 위한 절삭 길이
 
 # LLM 호출 타임아웃/재시도 설정.
-# NOTE: HttpOptions(timeout=...)의 단위는 설치된 google-genai SDK 버전에 따라 ms/초가 다를 수 있으니
-#       배포 전 실제 SDK 버전 문서로 한 번 확인해주세요. 여기서는 ms 기준으로 작성했습니다.
-_LLM_TIMEOUT_MS = 15_000
+_LLM_TIMEOUT_MS = 60_000
 _LLM_MAX_RETRIES = 2  # 최초 시도 포함 총 3회 호출
 _LLM_RETRY_BACKOFF_BASE_SEC = 1.5
 _RETRYABLE_STATUS_CODES = {408, 429, 500, 502, 503, 504}
@@ -45,10 +43,10 @@ _CADENCE_DEV_NOTABLE = 3.0   # 가이드: 대략 ±3 이상이면 뚜렷한 속�
 
 
 class _FeedbackOutput(BaseModel):
-    summary: str = Field(description="전체 세션에 대한 1~2문장의 핵심 요약")
-    strengths: list[str] = Field(description="잘한 점이나 긍정적인 패턴 (1~2개)")
-    improvements: list[str] = Field(description="개선이 필요한 부분과 구체적인 교정 방법 (1~2개)")
-    next_step: str = Field(description="다음 러닝을 위한 구체적인 목표나 조언")
+    summary: str = Field(description="세션 흐름을 원인과 결과로 이어서 서술하는 최소 2문장 이상. 항목을 나열하지 말고 하나의 이야기처럼 자연스럽게 연결할 것")
+    strengths: list[str] = Field(description="잘한 점 1~2개. 각 항목은 '라벨: 설명' 형식이 아니라 완결된 서술형 문장으로 작성하되, 전체 항목을 합쳐 최소 2문장 이상이 되도록 할 것")
+    improvements: list[str] = Field(description="개선이 필요한 부분과 그 이유 1~2개. 각 항목은 '라벨: 설명' 형식이 아니라 완결된 서술형 문장으로 작성하되, 전체 항목을 합쳐 최소 2문장 이상이 되도록 할 것")
+    next_step: str = Field(description="다음 러닝을 위한 구체적인 목표나 조언 최소 2문장 이상. summary의 흐름을 이어받아 자연스럽게 마무리할 것")
 
 
 def _dtw_position_label(idx: int, length: int) -> str:
@@ -354,10 +352,15 @@ def _build_feedback_prompt(
     lines += [
         "",
         "위 정보를 바탕으로 아래 항목에 맞춰 러닝 세션 종합 피드백을 JSON으로 작성해주세요:",
-        "- summary: 전체 세션에 대한 최소 3문장 이상 핵심 요약"
-        "- strengths: 잘한 점 최소 3개 이상",
-        "- improvements: 개선점과 구체적 교정 방법 3개 이상",
-        "- next_step: 다음 러닝을 위한 구체적 목표나 조언 (3장 이상)",
+        "- summary: 세션이 시간 순서대로 어떻게 흘러갔는지(초반 상태 → 중반 변화 → 그 결과)를 원인과 결과로 이어서 최소 2문장 이상으로 서술",
+        "- strengths: 잘한 점 1~2개, 각각 완결된 문장으로, 항목을 합쳐 최소 2문장 이상",
+        "- improvements: 개선점과 그 이유 1~2개, 각각 완결된 문장으로, 항목을 합쳐 최소 2문장 이상",
+        "- next_step: summary의 흐름을 이어받아 다음 러닝에서 무엇을, 왜 해야 하는지 최소 2문장 이상으로 서술",
+        "- 네 항목 모두 각각 최소 2문장 이상이어야 합니다. 한 문장으로 짧게 끝내지 마세요.",
+        "",
+        "전체적으로 네 항목을 이어 붙여 읽었을 때 하나의 자연스러운 글처럼 읽혀야 합니다. "
+        "'착지 충격 완화:', '페이스 안정화:' 같은 항목명+콜론(라벨) 형식은 절대 쓰지 말고, "
+        "'~했지만, ~하며, 그 영향으로 ~' 같은 접속 표현으로 문장과 문장을 자연스럽게 이어주세요.",
     ]
     return "\n".join(lines)
 
@@ -366,7 +369,10 @@ _SYSTEM_INSTRUCTION = (
     "당신은 러닝 코칭 전문가입니다. 제공된 세션 태그 비율, 개인 기준선 대비 편차 분석(dtwContext), "
     "구간별 코칭 이력, 참고 문헌을 종합하여 사용자에게 과학적이고 구체적인 피드백을 한국어로 제공합니다.\n\n"
     "응답은 반드시 지정된 JSON 스키마(summary, strengths, improvements, next_step)를 따라 "
-    "구조화해야 합니다.\n\n"
+    "구조화해야 합니다. 단, 필드가 나뉘어 있다고 해서 각 필드를 독립된 항목 나열로 쓰지 마세요. "
+    "네 필드를 순서대로 이어 붙였을 때 '초반엔 이랬는데, 그 결과 이렇게 됐고, 그래서 다음엔 이렇게 하면 좋겠다'는 "
+    "하나의 자연스러운 이야기로 읽혀야 합니다. '착지 충격 완화:', '페이스 안정화:'처럼 항목명을 콜론(:)으로 "
+    "붙이는 라벨링 형식은 쓰지 말고, 원인과 결과를 접속어로 연결한 완결된 문장으로 작성하세요.\n\n"
     "dtwContext 관련 지표는 절대적인 자세 판단이 아니라 이 사용자 개인의 평소 패턴 대비 상대적 편차입니다. "
     "'자세가 틀렸다'가 아니라 '평소보다 흐트러졌다'는 식으로 표현하세요. status(stable/drift/alert)와 "
     "trend(improving/steady/worsening)는 이미 판정된 값이니 그대로 신뢰하고, 임의로 다른 기준을 만들지 마세요. "
@@ -401,11 +407,9 @@ def _call_llm(prompt: str) -> _FeedbackOutput | None:
 
     for attempt in range(_LLM_MAX_RETRIES + 1):
         try:
-            # 클라이언트 생성 자체가 실패할 수도 있으므로(예: 설정 오류) try 블록 안에서 수행해
-            # 그 실패가 요청 스레드를 그대로 500으로 터뜨리지 않게 한다.
             client = genai.Client(api_key=settings.GEMINI_API_KEY)
             response = client.models.generate_content(
-                model="gemini-3.6-flash",
+                model="gemini-3.1-pro-preview",
                 contents=prompt,
                 config=genai.types.GenerateContentConfig(
                     system_instruction=_SYSTEM_INSTRUCTION,
