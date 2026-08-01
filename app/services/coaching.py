@@ -4,6 +4,7 @@ import logging
 import numpy as np
 from scipy.signal import find_peaks
 from google import genai
+from langsmith import traceable
 from openai import OpenAI
 from pydantic import BaseModel
 
@@ -60,6 +61,7 @@ def _finite_round(x: float, nd: int = 4) -> float:
     return round(x, nd)
 
 
+@traceable(name="extract_stats")
 def extract_stats(
     channels: dict[str, list[float]],
     sample_rate_hz: float = _DEFAULT_SAMPLE_RATE_HZ,
@@ -307,6 +309,7 @@ _SYSTEM_INSTRUCTION = (
 )
 
 
+@traceable(name="call_gemini")
 def _call_gemini(prompt: str) -> _CoachingOutput | None:
     client = genai.Client(api_key=settings.GEMINI_API_KEY)
     response = client.models.generate_content(
@@ -326,6 +329,7 @@ def _call_gemini(prompt: str) -> _CoachingOutput | None:
     return parsed
 
 
+@traceable(name="call_openai")
 def _call_openai(prompt: str) -> _CoachingOutput | None:
     client = OpenAI(api_key=settings.OPENAI_API_KEY)
     response = client.beta.chat.completions.parse(
@@ -341,6 +345,7 @@ def _call_openai(prompt: str) -> _CoachingOutput | None:
     return response.choices[0].message.parsed
 
 
+@traceable(name="call_llm")
 def _call_llm(prompt: str) -> tuple[str, list[str]] | None:
     try:
         provider = settings.LLM_PROVIDER.lower()
@@ -366,6 +371,7 @@ def _call_llm(prompt: str) -> tuple[str, list[str]] | None:
         return None
 
 
+@traceable(name="generate_coaching")
 def generate_coaching(
     channels: dict[str, list[float]],
     ratio: float,

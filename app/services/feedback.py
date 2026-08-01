@@ -4,6 +4,7 @@ from collections import Counter
 from statistics import mean
 
 from google import genai
+from langsmith import traceable
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -29,6 +30,7 @@ def select_dominant_tags(tag_ratio: dict[str, float], threshold: float = 0.20, m
     return [t for t, _ in picked]
 
 
+@traceable(name="summarize_dtw")
 def summarize_dtw(windows: list[SessionWindow]) -> dict:
     seq = [(w.window_start_time, w.dtw_context) for w in windows if w.dtw_context and "avgSimilarity" in w.dtw_context]
     if not seq:
@@ -46,6 +48,7 @@ def summarize_dtw(windows: list[SessionWindow]) -> dict:
     }
 
 
+@traceable(name="resolve_docs")
 def resolve_docs(tag_ratio: dict, dominant_tags: list[str], kb: dict) -> tuple[list[dict], str]:
     if tag_ratio.get("안정 러닝", 0) >= 0.7 or not dominant_tags:
         return pick_docs("안정 러닝", kb), "encouragement"
@@ -130,6 +133,7 @@ _SYSTEM_INSTRUCTION = (
 )
 
 
+@traceable(name="call_llm")
 def _call_llm(prompt: str) -> tuple[str, list[str]] | None:
     try:
         client = genai.Client(api_key=settings.GEMINI_API_KEY)
@@ -155,6 +159,7 @@ def _call_llm(prompt: str) -> tuple[str, list[str]] | None:
         return None
 
 
+@traceable(name="generate_session_feedback", project_name="azas-feedback")
 def generate_session_feedback(
     db: Session, session_id: int, user_id, force_regenerate: bool = False
 ) -> RunningFeedbackOut:
