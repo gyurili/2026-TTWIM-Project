@@ -58,3 +58,12 @@ def update_me(
     update_data = payload.model_dump(exclude_unset=True)
     updated_user = user_repo.update_user(db, current_user, update_data)
     return SuccessResponse(data=UserOut.model_validate(updated_user))
+
+
+@router.delete("/me", response_model=SuccessResponse[dict[str, str]])
+def delete_me(
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user),
+):
+    user_repo.delete_user(db, current_user)
+    return SuccessResponse(data={"message": "회원 탈퇴가 완료되었습니다."})

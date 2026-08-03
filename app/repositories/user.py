@@ -28,3 +28,8 @@ def update_user(db: Session, user: User, data: dict) -> User:
     db.commit()
     db.refresh(user)
     return user
+
+
+def delete_user(db: Session, user: User) -> None:
+    db.delete(user)
+    db.commit()
