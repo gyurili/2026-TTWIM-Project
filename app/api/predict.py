@@ -26,11 +26,13 @@ def predict_heel_strike(data: PredictBatchRequest, current_user: User = Depends(
 
         ratio = len(abnormal_indices) / len(data.steps)
         dtw = data.dtwContext.model_dump()
-        coaching_result = generate_coaching(channels, ratio, dtw)
+        altitude_readings = data.altitudeContext.readings if data.altitudeContext else None
+        coaching_result = generate_coaching(channels, ratio, dtw, altitude_readings=altitude_readings)
 
         if coaching_result is not None:
-            text, tags = coaching_result
+            text, tags, slope = coaching_result
             result.coaching_text = text
             result.coaching_tags = tags
+            result.terrain = slope
 
     return SuccessResponse(data=result)

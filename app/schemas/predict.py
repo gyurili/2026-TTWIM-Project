@@ -22,9 +22,14 @@ class DtwContext(BaseModel):
     timeline: list[float]
 
 
+class AltitudeContext(BaseModel):
+    readings: list[float]  # 윈도우 배치(약 20초)마다 1개씩 쌓이는 상대 고도(m), 최대 3개
+
+
 class PredictBatchRequest(BaseModel):
     steps: list[StepFeatures]
     dtwContext: DtwContext
+    altitudeContext: AltitudeContext | None = None
 
 
 class StepPrediction(BaseModel):
@@ -36,3 +41,4 @@ class PredictBatchResponse(BaseModel):
     predictions: list[StepPrediction]
     coaching_text: str = ""
     coaching_tags: list[str] = []
+    terrain: Literal["uphill", "downhill", "flat"] | None = None

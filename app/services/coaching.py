@@ -37,6 +37,10 @@ _STEP_PROMINENCE_RATIO = 0.12           # 수직 가속 범위 대비 최소 착
 _MIN_STEP_PROMINENCE = 0.15             # 너무 작은 흔들림을 걸음 피크로 세지 않기 위한 하한(g)
 _CHOPPY_BASE_CADENCE_SPM = 160.0        # 이 케이던스 이하는 좁은 보폭 지표를 0으로 둠
 
+# --- 고도(기압계) 기반 지형 판정 관련 상수 ---
+_ALTITUDE_MIN_READINGS = 3              # 이 개수 이상 쌓여야 오르막/내리막 판정을 시도함
+_ALTITUDE_SLOPE_THRESHOLD_M = 3.0       # 처음-마지막 고도 차이가 이 값(m) 이상이어야 경사로 판단
+
 
 class InsufficientDataError(ValueError):
     """센서 구간이 너무 짧거나(샘플 수 부족) 실질적인 움직임이 없어(정지 상태) 지표를 신뢰할 수 없을 때 발생."""
@@ -59,6 +63,24 @@ def _finite_round(x: float, nd: int = 4) -> float:
     if not np.isfinite(x):
         return 0.0
     return round(x, nd)
+
+
+def classify_slope(readings: list[float]) -> str | None:
+    """
+    윈도우 배치마다 쌓인 상대 고도(m) 값들로 오르막/내리막을 판정한다.
+
+    readings가 _ALTITUDE_MIN_READINGS개 미만이면 아직 판단할 근거가 부족하므로 None을 반환한다.
+    처음과 마지막 값의 차이가 임계값을 넘을 때만 uphill/downhill로 보고, 그 외엔 flat으로 본다.
+    """
+    if len(readings) < _ALTITUDE_MIN_READINGS:
+        return None
+
+    delta = readings[-1] - readings[0]
+    if delta >= _ALTITUDE_SLOPE_THRESHOLD_M:
+        return "uphill"
+    if delta <= -_ALTITUDE_SLOPE_THRESHOLD_M:
+        return "downhill"
+    return "flat"
 
 
 @traceable(name="extract_stats")
@@ -221,7 +243,13 @@ def extract_stats(
     }
 
 
-def _build_prompt(stats: dict, ratio: float, dtw: dict) -> str:
+_SLOPE_DESC = {
+    "uphill": "오르막",
+    "downhill": "내리막",
+}
+
+
+def _build_prompt(stats: dict, ratio: float, dtw: dict, slope: str | None = None) -> str:
     lines = [
         "[센서 통계: ML 비정상 판정 구간의 물리적 특징]",
         "1. 충격량 및 일관성 (충격 과다 판별 지표)",
@@ -257,8 +285,18 @@ def _build_prompt(stats: dict, ratio: float, dtw: dict) -> str:
         f"- 발 움직임 편차(amplitudeDev): {dtw['amplitudeDev']} (음수일수록 평소보다 발을 안 드는 패턴)",
         f"- 유사도 타임라인(3초 간격): {dtw['timeline']}",
         "",
-        "위 물리적 수치와 DTW 편차를 종합 분석하여 사용자의 러닝 자세를 과학적으로 교정해주세요.",
     ]
+
+    if slope in _SLOPE_DESC:
+        lines += [
+            "[지형 변화]",
+            f"- 기압계 기반 고도 추정 결과, 최근 구간은 {_SLOPE_DESC[slope]}으로 판단됩니다.",
+            f"- 현재 구간은 {_SLOPE_DESC[slope]}입니다. 충격/케이던스/페이스 변화가 지형에 의한 자연스러운 "
+            f"결과일 수 있음을 고려하여 조언에 반영해주세요.",
+            "",
+        ]
+
+    lines.append("위 물리적 수치와 DTW 편차를 종합 분석하여 사용자의 러닝 자세를 과학적으로 교정해주세요.")
     return "\n".join(lines)
 
 
@@ -305,7 +343,10 @@ _SYSTEM_INSTRUCTION = (
     "'안정 러닝'은 '문제 없음'을 의미하므로 다른 문제 태그와 절대 동시에 선택할 수 없으며, "
     "1~3단계 중 하나라도 조건을 충족했다면 반드시 제외하세요.\n\n"
     "최종적으로 tags는 최소 1개 이상 포함해야 하며, 근거가 애매한 태그를 추측으로 추가하지 말고 "
-    "가장 뚜렷하게 관찰되는 문제(들)만 선택하세요."
+    "가장 뚜렷하게 관찰되는 문제(들)만 선택하세요.\n\n"
+    "★지형 정보: 프롬프트에 [지형 변화] 섹션(오르막/내리막)이 주어지면, 충격 과다나 페이스 변화로 보이는 "
+    "지표가 경사로 인한 자연스러운 변화일 수 있음을 감안해 조언 문구에 짧게 반영하세요. 다만 발끌기나 좁은 "
+    "보폭처럼 지형과 무관한 판정 기준까지 지형 탓으로 돌리지는 마세요."
 )
 
 
@@ -377,19 +418,18 @@ def generate_coaching(
     ratio: float,
     dtw: dict,
     sample_rate_hz: float = _DEFAULT_SAMPLE_RATE_HZ,
-) -> tuple[str, list[str]] | None:
-    """
-    Returns:
-        (text, tags) 정상 처리된 경우.
-        None: 센서 구간이 너무 짧거나 실질적인 움직임이 없어 분석이 불가능하거나(InsufficientDataError),
-              LLM 호출 자체가 실패한 경우. 두 경우 모두 "판단 불가"이므로 호출측에서 동일하게
-              처리해도 무방하지만, 필요하다면 로그의 예외 타입으로 구분 가능하다.
-    """
+    altitude_readings: list[float] | None = None,
+) -> tuple[str, list[str], str | None] | None:
     try:
         stats = extract_stats(channels, sample_rate_hz=sample_rate_hz)
     except InsufficientDataError as e:
         logger.info("코칭 생성 스킵(데이터 부족/정지 상태): %s", e)
         return None
 
-    prompt = _build_prompt(stats, ratio, dtw)
-    return _call_llm(prompt)
+    slope = classify_slope(altitude_readings) if altitude_readings else None
+    prompt = _build_prompt(stats, ratio, dtw, slope)
+    result = _call_llm(prompt)
+    if result is None:
+        return None
+    text, tags = result
+    return text, tags, slope
