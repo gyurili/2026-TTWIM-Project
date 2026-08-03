@@ -13,6 +13,7 @@ from sqlalchemy import text as sa_text
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.time import kst_naive_to_epoch_ms
 from app.crud.running import get_feedback_by_session, get_windows_by_session, upsert_feedback
 from app.models.running import RunningFeedback, RunningSession, SessionWindow
 from app.schemas.running import RunningFeedbackOut
@@ -222,7 +223,7 @@ def _build_timeline(session: RunningSession, windows: list[SessionWindow]) -> li
     if not windows:
         return []
 
-    session_start_ms = int(session.start_time.timestamp() * 1000)
+    session_start_ms = kst_naive_to_epoch_ms(session.start_time)
     segments: list[dict] = []
     for w in windows:
         tag = _dominant_tag(w.tags or [])
