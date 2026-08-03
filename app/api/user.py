@@ -6,7 +6,7 @@ from app.core.security import get_current_user
 from app.db.session import get_db
 from app.repositories import user as user_repo
 from app.schemas.common import SuccessResponse
-from app.schemas.user import UserCreate, UserOut, UserLogin, TokenResponse, UserInfo
+from app.schemas.user import UserCreate, UserOut, UserLogin, TokenResponse, UserInfo, UserUpdate
 from app.services.user import get_password_hash, verify_password, create_access_token
 
 router = APIRouter()
@@ -47,3 +47,23 @@ def login(payload: UserLogin, db: Session = Depends(get_db)):
 @router.get("/me", response_model=SuccessResponse[UserOut])
 def get_me(current_user = Depends(get_current_user)):
     return SuccessResponse(data=UserOut.model_validate(current_user))
+
+
+@router.patch("/me", response_model=SuccessResponse[UserOut])
+def update_me(
+    payload: UserUpdate,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user),
+):
+    update_data = payload.model_dump(exclude_unset=True)
+    updated_user = user_repo.update_user(db, current_user, update_data)
+    return SuccessResponse(data=UserOut.model_validate(updated_user))
+
+
+@router.delete("/me", response_model=SuccessResponse[dict[str, str]])
+def delete_me(
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user),
+):
+    user_repo.delete_user(db, current_user)
+    return SuccessResponse(data={"message": "회원 탈퇴가 완료되었습니다."})
