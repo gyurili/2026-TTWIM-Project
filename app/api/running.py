@@ -7,13 +7,21 @@ from sqlalchemy.orm import Session
 from app.core.exceptions import SessionForbiddenError, SessionNotFoundError
 from app.core.security import get_current_user
 from app.core.time import KST
-from app.crud.running import create_session, get_session, get_weekly_distance_by_date
+from app.crud.running import (
+    create_session,
+    get_monthly_sessions_with_feedback,
+    get_session,
+    get_weekly_distance_by_date,
+)
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.common import SuccessResponse
 from app.schemas.running import (
     DailyDistanceOut,
     HomeSummaryOut,
+    MonthlyRecentSessionOut,
+    MonthlySummaryOut,
+    MonthlyTagRatioOut,
     RunningFeedbackOut,
     RunningSessionCreate,
     RunningSessionOut,
@@ -48,6 +56,53 @@ def get_home_summary(
         nickname=current_user.nickname,
         week_total_km=round(float(week_total_m) / 1000, 1),
         daily_distances=daily_distances,
+    )
+    return SuccessResponse(data=result)
+
+
+@router.get("/running/monthly-summary", response_model=SuccessResponse[MonthlySummaryOut])
+def get_monthly_summary(
+    year: int = Query(...),
+    month: int = Query(..., ge=1, le=12),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    rows = get_monthly_sessions_with_feedback(db, current_user.id, year, month)
+
+    total_distance_m = sum((session.total_distance_m for session, _ in rows), Decimal("0"))
+    tag_sums: dict[str, float] = {}
+    feedback_count = 0
+    recent_sessions = []
+
+    for session, feedback in rows:
+        dominant_tag = None
+        if feedback and feedback.tag_ratio:
+            feedback_count += 1
+            for tag, ratio in feedback.tag_ratio.items():
+                tag_sums[tag] = tag_sums.get(tag, 0) + ratio
+            dominant_tag = max(feedback.tag_ratio.items(), key=lambda kv: kv[1])[0]
+        recent_sessions.append(
+            MonthlyRecentSessionOut(
+                session_id=session.session_id,
+                date=session.start_time.date(),
+                distance_km=round(float(session.total_distance_m) / 1000, 2),
+                dominant_tag=dominant_tag,
+            )
+        )
+
+    tag_ratios = sorted(
+        (MonthlyTagRatioOut(tag=tag, ratio=round(total / feedback_count, 2)) for tag, total in tag_sums.items()),
+        key=lambda t: t.ratio,
+        reverse=True,
+    ) if feedback_count else []
+
+    result = MonthlySummaryOut(
+        year=year,
+        month=month,
+        total_distance_km=round(float(total_distance_m) / 1000, 2),
+        total_count=len(rows),
+        tag_ratios=tag_ratios,
+        recent_sessions=recent_sessions,
     )
     return SuccessResponse(data=result)
 

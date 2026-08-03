@@ -1,4 +1,5 @@
-from datetime import date
+from calendar import monthrange
+from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID
 
@@ -71,6 +72,21 @@ def get_weekly_distance_by_date(
         .all()
     )
     return dict(rows)
+
+
+def get_monthly_sessions_with_feedback(
+    db: Session, user_id: UUID, year: int, month: int
+) -> list[tuple[RunningSession, RunningFeedback | None]]:
+    start = date(year, month, 1)
+    end_exclusive = date(year, month, monthrange(year, month)[1]) + timedelta(days=1)
+    return (
+        db.query(RunningSession, RunningFeedback)
+        .outerjoin(RunningFeedback, RunningFeedback.session_id == RunningSession.session_id)
+        .filter(RunningSession.user_id == user_id)
+        .filter(RunningSession.start_time >= start, RunningSession.start_time < end_exclusive)
+        .order_by(RunningSession.start_time.desc())
+        .all()
+    )
 
 
 def get_windows_by_session(db: Session, session_id: int) -> list[SessionWindow]:
