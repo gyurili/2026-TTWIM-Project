@@ -39,7 +39,7 @@ _CHOPPY_BASE_CADENCE_SPM = 160.0        # 이 케이던스 이하는 좁은 보�
 
 # --- 고도(기압계) 기반 지형 판정 관련 상수 ---
 _ALTITUDE_MIN_READINGS = 3              # 이 개수 이상 쌓여야 오르막/내리막 판정을 시도함
-_ALTITUDE_SLOPE_THRESHOLD_M = 3.0       # 처음-마지막 고도 차이가 이 값(m) 이상이어야 경사로 판단
+_ALTITUDE_SLOPE_THRESHOLD_M = 2.0       # 처음-마지막 고도 차이가 이 값(m) 이상이어야 경사로 판단
 
 
 class InsufficientDataError(ValueError):
@@ -290,9 +290,9 @@ def _build_prompt(stats: dict, ratio: float, dtw: dict, slope: str | None = None
     if slope in _SLOPE_DESC:
         lines += [
             "[지형 변화]",
-            f"- 기압계 기반 고도 추정 결과, 최근 구간은 {_SLOPE_DESC[slope]}으로 판단됩니다.",
-            f"- 현재 구간은 {_SLOPE_DESC[slope]}입니다. 충격/케이던스/페이스 변화가 지형에 의한 자연스러운 "
-            f"결과일 수 있음을 고려하여 조언에 반영해주세요.",
+            f"- 기압계 기반 고도 추정 결과, 최근 러닝은 {_SLOPE_DESC[slope]}으로 판단됩니다.",
+            f"- 현재 구간은 {_SLOPE_DESC[slope]}입니다."
+            f"충격/케이던스/페이스 변화가 지형에 의한 자연스러운 결과일 수 있음을 고려하여 조언에 반영해주세요.",
             "",
         ]
 
@@ -343,21 +343,31 @@ _SYSTEM_INSTRUCTION = (
     "'안정 러닝'은 '문제 없음'을 의미하므로 다른 문제 태그와 절대 동시에 선택할 수 없으며, "
     "1~3단계 중 하나라도 조건을 충족했다면 반드시 제외하세요.\n\n"
     "최종적으로 tags는 최소 1개 이상 포함해야 하며, 근거가 애매한 태그를 추측으로 추가하지 말고 "
-    "가장 뚜렷하게 관찰되는 문제(들)만 선택하세요.\n\n"
+    "가장 뚜렷하게 관찰되는 문제(들)만 선택하세요."
+)
+
+# 프롬프트에 [지형 변화] 섹션이 실제로 있을 때만(오르막/내리막) 붙이는 추가 지시문
+_TERRAIN_SYSTEM_ADDENDUM = (
     "★지형 정보: 프롬프트에 [지형 변화] 섹션(오르막/내리막)이 주어지면, 충격 과다나 페이스 변화로 보이는 "
-    "지표가 경사로 인한 자연스러운 변화일 수 있음을 감안해 조언 문구에 짧게 반영하세요. 다만 발끌기나 좁은 "
-    "보폭처럼 지형과 무관한 판정 기준까지 지형 탓으로 돌리지는 마세요."
+    "지표가 경사로 인한 자연스러운 변화일 수 있음을 감안해 조언 문구에 짧게 반영하세요."
+    "다만 지형과 무관한 판정 기준까지 지형 탓으로 돌리지는 마세요."
 )
 
 
+def _build_system_instruction(slope: str | None) -> str:
+    if slope in _SLOPE_DESC:
+        return _SYSTEM_INSTRUCTION + "\n\n" + _TERRAIN_SYSTEM_ADDENDUM
+    return _SYSTEM_INSTRUCTION
+
+
 @traceable(name="call_gemini")
-def _call_gemini(prompt: str) -> _CoachingOutput | None:
+def _call_gemini(prompt: str, system_instruction: str) -> _CoachingOutput | None:
     client = genai.Client(api_key=settings.GEMINI_API_KEY)
     response = client.models.generate_content(
         model="gemini-3.1-flash-lite",
         contents=prompt,
         config=genai.types.GenerateContentConfig(
-            system_instruction=_SYSTEM_INSTRUCTION,
+            system_instruction=system_instruction,
             temperature=0.3,
             max_output_tokens=4000,
             response_mime_type="application/json",
@@ -371,12 +381,12 @@ def _call_gemini(prompt: str) -> _CoachingOutput | None:
 
 
 @traceable(name="call_openai")
-def _call_openai(prompt: str) -> _CoachingOutput | None:
+def _call_openai(prompt: str, system_instruction: str) -> _CoachingOutput | None:
     client = OpenAI(api_key=settings.OPENAI_API_KEY)
     response = client.beta.chat.completions.parse(
         model="gpt-4o-mini",
         messages=[
-            {"role": "system", "content": _SYSTEM_INSTRUCTION},
+            {"role": "system", "content": system_instruction},
             {"role": "user", "content": prompt},
         ],
         temperature=0.3,
@@ -387,13 +397,13 @@ def _call_openai(prompt: str) -> _CoachingOutput | None:
 
 
 @traceable(name="call_llm")
-def _call_llm(prompt: str) -> tuple[str, list[str]] | None:
+def _call_llm(prompt: str, system_instruction: str) -> tuple[str, list[str]] | None:
     try:
         provider = settings.LLM_PROVIDER.lower()
         if provider == "openai":
-            parsed = _call_openai(prompt)
+            parsed = _call_openai(prompt, system_instruction)
         else:
-            parsed = _call_gemini(prompt)
+            parsed = _call_gemini(prompt, system_instruction)
 
         if parsed is None or not parsed.text:
             return None
@@ -428,7 +438,8 @@ def generate_coaching(
 
     slope = classify_slope(altitude_readings) if altitude_readings else None
     prompt = _build_prompt(stats, ratio, dtw, slope)
-    result = _call_llm(prompt)
+    system_instruction = _build_system_instruction(slope)
+    result = _call_llm(prompt, system_instruction)
     if result is None:
         return None
     text, tags = result
