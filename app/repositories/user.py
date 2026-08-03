@@ -20,3 +20,11 @@ def create_user(db: Session, data: dict) -> User:
     db.commit()
     db.refresh(user)
     return user
+
+
+def update_user(db: Session, user: User, data: dict) -> User:
+    for key, value in data.items():
+        setattr(user, key, value)
+    db.commit()
+    db.refresh(user)
+    return user
