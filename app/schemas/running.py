@@ -111,6 +111,11 @@ class TimelineSegmentOut(CamelModel):
     end_min: int
 
 
+class SessionFeedbackSummaryOut(CamelModel):
+    tag_ratio: dict[str, Any]
+    timeline: list[TimelineSegmentOut]
+
+
 class RunningFeedbackOut(CamelModel):
     feedback_id: int
     session_id: int

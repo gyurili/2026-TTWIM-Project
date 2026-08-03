@@ -53,3 +53,8 @@ class SessionNotFoundError(ServiceError):
 class SessionForbiddenError(ServiceError):
     def __init__(self, message: str = "본인의 세션이 아닙니다."):
         super().__init__(message, status_code=403)
+
+
+class FeedbackNotFoundError(ServiceError):
+    def __init__(self, message: str = "생성된 피드백이 없습니다."):
+        super().__init__(message, status_code=404)
