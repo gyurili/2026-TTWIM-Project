@@ -30,6 +30,13 @@ class UserOut(BaseModel):
         from_attributes = True
 
 
+class UserUpdate(BaseModel):
+    gender: Optional[Literal["man", "woman"]] = None
+    birth_date: Optional[date] = None
+    height: Optional[int] = None
+    weight: Optional[int] = None
+
+
 class UserLogin(BaseModel):
     user_id: str
     password: str
