@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
@@ -57,6 +58,19 @@ def upsert_feedback(db: Session, session_id: int, user_id: UUID, data: dict) -> 
     db.commit()
     db.refresh(existing)
     return existing
+
+
+def get_weekly_distance_by_date(
+    db: Session, user_id: UUID, week_start: date, week_end_exclusive: date
+) -> dict[date, Decimal]:
+    rows = (
+        db.query(func.date(RunningSession.start_time), func.sum(RunningSession.total_distance_m))
+        .filter(RunningSession.user_id == user_id)
+        .filter(RunningSession.start_time >= week_start, RunningSession.start_time < week_end_exclusive)
+        .group_by(func.date(RunningSession.start_time))
+        .all()
+    )
+    return dict(rows)
 
 
 def get_windows_by_session(db: Session, session_id: int) -> list[SessionWindow]:
