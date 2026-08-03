@@ -1,10 +1,12 @@
-from datetime import datetime
+from calendar import monthrange
+from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.core.time import epoch_ms_to_kst_naive
 from app.models.running import RunningFeedback, RunningSession, SessionWindow
 from app.schemas.running import RunningSessionCreate
 
@@ -14,8 +16,8 @@ def create_session(db: Session, user_id: UUID, data: RunningSessionCreate) -> Ru
         user_id=user_id,
         mode=data.mode,
         route=[r.model_dump() for r in data.route] if data.route else None,
-        start_time=datetime.fromtimestamp(data.started_at / 1000),
-        end_time=datetime.fromtimestamp(data.ended_at / 1000),
+        start_time=epoch_ms_to_kst_naive(data.started_at),
+        end_time=epoch_ms_to_kst_naive(data.ended_at),
         total_distance_m=Decimal(str(round(data.distance_meters, 2))),
         total_duration_sec=data.duration_sec,
     )
@@ -57,6 +59,34 @@ def upsert_feedback(db: Session, session_id: int, user_id: UUID, data: dict) -> 
     db.commit()
     db.refresh(existing)
     return existing
+
+
+def get_weekly_distance_by_date(
+    db: Session, user_id: UUID, week_start: date, week_end_exclusive: date
+) -> dict[date, Decimal]:
+    rows = (
+        db.query(func.date(RunningSession.start_time), func.sum(RunningSession.total_distance_m))
+        .filter(RunningSession.user_id == user_id)
+        .filter(RunningSession.start_time >= week_start, RunningSession.start_time < week_end_exclusive)
+        .group_by(func.date(RunningSession.start_time))
+        .all()
+    )
+    return dict(rows)
+
+
+def get_monthly_sessions_with_feedback(
+    db: Session, user_id: UUID, year: int, month: int
+) -> list[tuple[RunningSession, RunningFeedback | None]]:
+    start = date(year, month, 1)
+    end_exclusive = date(year, month, monthrange(year, month)[1]) + timedelta(days=1)
+    return (
+        db.query(RunningSession, RunningFeedback)
+        .outerjoin(RunningFeedback, RunningFeedback.session_id == RunningSession.session_id)
+        .filter(RunningSession.user_id == user_id)
+        .filter(RunningSession.start_time >= start, RunningSession.start_time < end_exclusive)
+        .order_by(RunningSession.start_time.desc())
+        .all()
+    )
 
 
 def get_windows_by_session(db: Session, session_id: int) -> list[SessionWindow]:

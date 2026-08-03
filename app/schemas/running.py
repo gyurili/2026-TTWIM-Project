@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
@@ -56,6 +56,39 @@ class RunningSessionOut(CamelModel):
     total_duration_sec: int
     created_at: datetime | None = None
     windows: list[SessionWindowOut] = []
+
+
+class DailyDistanceOut(CamelModel):
+    date: date
+    weekday_label: str
+    distance_km: float
+
+
+class HomeSummaryOut(CamelModel):
+    nickname: str
+    week_total_km: float
+    daily_distances: list[DailyDistanceOut]
+
+
+class MonthlyTagRatioOut(CamelModel):
+    tag: str
+    ratio: float
+
+
+class MonthlyRecentSessionOut(CamelModel):
+    session_id: int
+    date: date
+    distance_km: float
+    dominant_tag: str | None = None
+
+
+class MonthlySummaryOut(CamelModel):
+    year: int
+    month: int
+    total_distance_km: float
+    total_count: int
+    tag_ratios: list[MonthlyTagRatioOut]
+    recent_sessions: list[MonthlyRecentSessionOut]
 
 
 class FeedbackDetail(CamelModel):
