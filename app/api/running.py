@@ -28,7 +28,7 @@ from app.schemas.running import (
     RunningSessionOut,
     SessionFeedbackSummaryOut,
 )
-from app.services.feedback import generate_session_feedback
+from app.services.feedback import generate_session_feedback, get_session_feedback
 
 router = APIRouter(tags=["Running"])
 
@@ -132,6 +132,24 @@ def create_session_feedback(
     if session.user_id != current_user.id:
         raise SessionForbiddenError()
     result = generate_session_feedback(db, session, current_user.id, current_user, force_regenerate)
+    return SuccessResponse(data=result)
+
+
+@router.get("/running/{session_id}/feedback", response_model=SuccessResponse[RunningFeedbackOut])
+def get_session_feedback_report(
+    session_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    session = get_session(db, session_id)
+    if not session:
+        raise SessionNotFoundError()
+    if session.user_id != current_user.id:
+        raise SessionForbiddenError()
+
+    result = get_session_feedback(db, session)
+    if not result:
+        raise FeedbackNotFoundError()
     return SuccessResponse(data=result)
 
 
