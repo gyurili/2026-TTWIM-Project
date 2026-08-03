@@ -1,6 +1,7 @@
-from sqlalchemy import Column, BigInteger, Integer, String, Text, DateTime, Numeric, ForeignKey, func
+from sqlalchemy import Column, BigInteger, Integer, String, Text, DateTime, Numeric, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
+from app.core.time import now_kst_naive
 from app.db.base import Base
 
 
@@ -15,7 +16,7 @@ class RunningSession(Base):
     end_time           = Column(DateTime, nullable=False)
     total_distance_m   = Column(Numeric(10, 2), nullable=False)
     total_duration_sec = Column(Integer, nullable=False)
-    created_at         = Column(DateTime, server_default=func.now())
+    created_at         = Column(DateTime, default=now_kst_naive)
 
     windows = relationship("SessionWindow", backref="session", cascade="all, delete-orphan")
 
@@ -42,4 +43,4 @@ class RunningFeedback(Base):
     final_feedback = Column(Text, nullable=False)
     tag_ratio      = Column(JSONB, nullable=False)
     timeline       = Column(JSONB, nullable=True)  # 세션 시작 기준 분 단위 구간별 우세 태그. window 재조회 비용 때문에 생성 시점에 캐싱.
-    created_at     = Column(DateTime, server_default=func.now())
+    created_at     = Column(DateTime, default=now_kst_naive)

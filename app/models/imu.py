@@ -1,4 +1,5 @@
-from sqlalchemy import Column, BigInteger, Integer, String, DateTime, Text, func, ForeignKey, Index
+from sqlalchemy import Column, BigInteger, Integer, String, DateTime, Text, ForeignKey, Index
+from app.core.time import now_kst_naive
 from app.db.base import Base
 
 
@@ -7,7 +8,7 @@ class GaitSession(Base):
 
     id         = Column(String(50), primary_key=True, index=True)
     label      = Column(String(50), nullable=True)
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(DateTime, default=now_kst_naive)
 
 
 class GaitRecord(Base):
@@ -33,4 +34,4 @@ class GaitRecord(Base):
     raw_gyro_y = Column(Text, nullable=False)
     raw_gyro_z = Column(Text, nullable=False)
 
-    received_at = Column(DateTime, server_default=func.now())
+    received_at = Column(DateTime, default=now_kst_naive)

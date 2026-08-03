@@ -1,6 +1,7 @@
-from sqlalchemy import Column, BigInteger, String, Float, DateTime, ForeignKey, func
+from sqlalchemy import Column, BigInteger, String, Float, DateTime, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 
+from app.core.time import now_kst_naive
 from app.db.base import Base
 
 
@@ -23,5 +24,5 @@ class DtwCalibration(Base):
     cadence_mad        = Column(Float, nullable=False)        # 케이던스의 산포도(MAD)
     baseline_amplitude = Column(Float, nullable=False)        # 기준 진폭
     amplitude_mad      = Column(Float, nullable=False)        # 진폭의 산포도(MAD)
-    created_at         = Column(DateTime, server_default=func.now())
-    updated_at         = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    created_at         = Column(DateTime, default=now_kst_naive)
+    updated_at         = Column(DateTime, default=now_kst_naive, onupdate=now_kst_naive)
