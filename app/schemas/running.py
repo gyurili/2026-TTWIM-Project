@@ -124,6 +124,7 @@ class RunningFeedbackOut(CamelModel):
     tag_ratio: dict[str, Any]
     session_summary: SessionSummaryOut
     timeline: list[TimelineSegmentOut] = []
+    route: list[dict[str, Any]] | None = None
     created_at: datetime | None = None
 
     @field_validator("final_feedback", mode="before")

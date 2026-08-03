@@ -244,7 +244,7 @@ def _build_timeline(session: RunningSession, windows: list[SessionWindow]) -> li
     ]
 
 
-def _to_feedback_out(fb: RunningFeedback, session_summary: dict) -> RunningFeedbackOut:
+def _to_feedback_out(fb: RunningFeedback, session_summary: dict, route: list[dict] | None = None) -> RunningFeedbackOut:
     """session_summary는 RunningSession에서 쿼리 없이 즉석 계산하는 값이라 저장하지 않고 매번 새로 채운다.
     timeline은 window 전체를 다시 읽어야 하는 비용이 있어 생성 시점에 RunningFeedback에 캐싱해두고 그대로 재사용한다."""
     return RunningFeedbackOut(
@@ -255,8 +255,18 @@ def _to_feedback_out(fb: RunningFeedback, session_summary: dict) -> RunningFeedb
         tag_ratio=fb.tag_ratio,
         session_summary=session_summary,
         timeline=fb.timeline or [],
+        route=route,
         created_at=fb.created_at,
     )
+
+
+def get_session_feedback(db: Session, session: RunningSession) -> RunningFeedbackOut | None:
+    """이미 생성된 피드백을 순수 조회만 한다 (LLM 생성/재생성 없음). 없으면 None."""
+    fb = get_feedback_by_session(db, session.session_id)
+    if not fb:
+        return None
+    session_summary = _summarize_session(session)
+    return _to_feedback_out(fb, session_summary, session.route)
 
 
 def _coaching_history(windows: list[SessionWindow], limit: int = _MAX_COACHING_HISTORY) -> list[dict]:
@@ -517,7 +527,7 @@ def generate_session_feedback(
     if not force_regenerate:
         existing = get_feedback_by_session(db, session_id)
         if existing:
-            return _to_feedback_out(existing, session_summary)
+            return _to_feedback_out(existing, session_summary, session.route)
 
     # 동일 세션에 대한 동시 요청이 각자 LLM을 중복 호출하지 않도록 트랜잭션 범위 락으로 직렬화한다.
     # 커밋/롤백 시 자동 해제되므로 별도 unlock이 필요 없다.
@@ -527,7 +537,7 @@ def generate_session_feedback(
         # 락 대기 중 다른 요청이 먼저 생성을 마쳤을 수 있으므로 다시 확인한다 (double-checked locking).
         existing = get_feedback_by_session(db, session_id)
         if existing:
-            return _to_feedback_out(existing, session_summary)
+            return _to_feedback_out(existing, session_summary, session.route)
 
     windows = get_windows_by_session(db, session_id)
     if not windows:
@@ -539,7 +549,7 @@ def generate_session_feedback(
         }
         data = {"final_feedback": json.dumps(no_data, ensure_ascii=False), "tag_ratio": {}, "timeline": []}
         fb = upsert_feedback(db, session_id, user_id, data)
-        return _to_feedback_out(fb, session_summary)
+        return _to_feedback_out(fb, session_summary, session.route)
 
     all_tags = [t for w in windows for t in (w.tags or [])]
     total = len(all_tags) or 1
@@ -567,7 +577,7 @@ def generate_session_feedback(
         }
         data = {"final_feedback": json.dumps(fallback_data, ensure_ascii=False), "tag_ratio": tag_ratio, "timeline": timeline}
         fb = upsert_feedback(db, session_id, user_id, data)
-        return _to_feedback_out(fb, session_summary)
+        return _to_feedback_out(fb, session_summary, session.route)
 
     feedback_dict = llm_result.model_dump()
 
@@ -577,4 +587,4 @@ def generate_session_feedback(
         "timeline": timeline,
     }
     fb = upsert_feedback(db, session_id, user_id, data)
-    return _to_feedback_out(fb, session_summary)
+    return _to_feedback_out(fb, session_summary, session.route)
