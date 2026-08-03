@@ -1,7 +1,8 @@
 import uuid
-from sqlalchemy import Boolean, Column, String, Integer, Date, DateTime, func, text
+from sqlalchemy import Boolean, Column, String, Integer, Date, DateTime, text
 from sqlalchemy.dialects.postgresql import UUID
 
+from app.core.time import now_kst_naive
 from app.db.base import Base
 
 
@@ -19,4 +20,4 @@ class User(Base):
     is_calibrated = Column(  # DTW 캘리브레이션 완료 여부
         Boolean, nullable=False, default=False, server_default=text("false")
     )
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    created_at = Column(DateTime, default=now_kst_naive)
