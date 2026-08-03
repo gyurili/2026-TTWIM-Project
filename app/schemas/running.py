@@ -70,6 +70,27 @@ class HomeSummaryOut(CamelModel):
     daily_distances: list[DailyDistanceOut]
 
 
+class MonthlyTagRatioOut(CamelModel):
+    tag: str
+    ratio: float
+
+
+class MonthlyRecentSessionOut(CamelModel):
+    session_id: int
+    date: date
+    distance_km: float
+    dominant_tag: str | None = None
+
+
+class MonthlySummaryOut(CamelModel):
+    year: int
+    month: int
+    total_distance_km: float
+    total_count: int
+    tag_ratios: list[MonthlyTagRatioOut]
+    recent_sessions: list[MonthlyRecentSessionOut]
+
+
 class FeedbackDetail(CamelModel):
     summary: str
     strengths: list[str] = []
