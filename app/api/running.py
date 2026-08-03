@@ -4,11 +4,12 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import SessionForbiddenError, SessionNotFoundError
+from app.core.exceptions import FeedbackNotFoundError, SessionForbiddenError, SessionNotFoundError
 from app.core.security import get_current_user
 from app.core.time import KST
 from app.crud.running import (
     create_session,
+    get_feedback_by_session,
     get_monthly_sessions_with_feedback,
     get_session,
     get_weekly_distance_by_date,
@@ -25,6 +26,7 @@ from app.schemas.running import (
     RunningFeedbackOut,
     RunningSessionCreate,
     RunningSessionOut,
+    SessionFeedbackSummaryOut,
 )
 from app.services.feedback import generate_session_feedback
 
@@ -131,3 +133,24 @@ def create_session_feedback(
         raise SessionForbiddenError()
     result = generate_session_feedback(db, session, current_user.id, current_user, force_regenerate)
     return SuccessResponse(data=result)
+
+
+@router.get("/running/{session_id}/feedback/summary", response_model=SuccessResponse[SessionFeedbackSummaryOut])
+def get_session_feedback_summary(
+    session_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    session = get_session(db, session_id)
+    if not session:
+        raise SessionNotFoundError()
+    if session.user_id != current_user.id:
+        raise SessionForbiddenError()
+
+    feedback = get_feedback_by_session(db, session_id)
+    if not feedback:
+        raise FeedbackNotFoundError()
+
+    return SuccessResponse(
+        data=SessionFeedbackSummaryOut(tag_ratio=feedback.tag_ratio, timeline=feedback.timeline or [])
+    )
