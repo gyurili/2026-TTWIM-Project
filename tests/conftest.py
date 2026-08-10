@@ -1,3 +1,5 @@
+import uuid
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
@@ -64,3 +66,28 @@ def client(db_session):
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()
+
+
+def signup_and_login(client, **overrides):
+    """여러 테스트 파일에서 재사용하는 가입+로그인 헬퍼. Authorization 헤더까지 만들어 돌려준다."""
+    payload = {
+        "user_id": f"testuser_{uuid.uuid4().hex[:10]}",
+        "nickname": "테스트유저",
+        "password": "password123",
+        "gender": "man",
+        "birth_date": "1998-01-01",
+        "height": 175,
+        "weight": 68,
+    }
+    payload.update(overrides)
+
+    signup_res = client.post("/user/signup", json=payload)
+    assert signup_res.status_code == 200
+
+    login_res = client.post(
+        "/user/login", json={"user_id": payload["user_id"], "password": payload["password"]}
+    )
+    assert login_res.status_code == 200
+    token = login_res.json()["data"]["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    return payload, headers
