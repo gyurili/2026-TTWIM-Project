@@ -24,6 +24,10 @@ TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engin
 def _setup_test_db():
     # app.main을 import해야 라우터를 거쳐 모든 모델(User 포함)이 Base.metadata에 등록된다.
     from app.main import app  # noqa: F401
+    from sqlalchemy import text as sa_text
+
+    with engine.begin() as conn:
+        conn.execute(sa_text("CREATE EXTENSION IF NOT EXISTS vector"))
 
     Base.metadata.create_all(bind=engine)
     yield
