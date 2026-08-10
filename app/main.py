@@ -4,6 +4,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy import text as sa_text
 
 from app.api.router import api_router
 from app.api.user import router as user_router
@@ -13,6 +14,8 @@ from app.core.exceptions import ServiceError
 import app.models.imu
 import app.models.running
 import app.models.dtw
+import app.models.chat
+import app.models.paper
 
 
 logger = logging.getLogger(__name__)
@@ -20,6 +23,12 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    try:
+        with engine.begin() as conn:
+            conn.execute(sa_text("CREATE EXTENSION IF NOT EXISTS vector"))
+    except Exception as e:
+        logger.error("pgvector 확장 활성화 실패 (RAG 챗봇 검색이 동작하지 않을 수 있습니다): %s", e)
+
     Base.metadata.create_all(bind=engine)
 
     from app.services.predict import load_models
@@ -27,6 +36,12 @@ async def lifespan(app: FastAPI):
         load_models()
     except Exception as e:
         logger.error("모델 로드 실패: %s", e)
+
+    from app.services.paper_rag import load_index
+    try:
+        load_index()
+    except Exception as e:
+        logger.error("논문 RAG 인덱스 로드 실패: %s", e)
 
     yield
     logger.info("서버가 종료됩니다.")

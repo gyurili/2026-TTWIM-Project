@@ -1,0 +1,212 @@
+{
+  "single_turn": [
+    {
+      "id": "s1",
+      "tag": "충격 과다 러닝",
+      "question": "착지할 때 충격이 큰 이유가 뭐야?",
+      "expected_doc_ids": [
+        "Effects of Running Speed and Visual Feedback on the Reduction of the Impact",
+        "Enhancing running injury prevention strategies"
+      ]
+    },
+    {
+      "id": "s2",
+      "tag": "충격 과다 러닝",
+      "question": "실시간 피드백으로 착지 충격을 줄일 수 있어?",
+      "expected_doc_ids": [
+        "Enhancing running injury prevention strategies",
+        "Field-Based Gait Retraining to Reduce Impact Loading"
+      ]
+    },
+    {
+      "id": "s3",
+      "tag": "충격 과다 러닝",
+      "question": "가속도계로 충격 하중을 재훈련하는 방법이 있어?",
+      "expected_doc_ids": ["Field-Based Gait Retraining to Reduce Impact Loading"]
+    },
+    {
+      "id": "s4",
+      "tag": "충격 과다 러닝",
+      "question": "달리기 속도를 바꾸면 착지 충격도 줄어들어?",
+      "expected_doc_ids": ["Effects of Running Speed and Visual Feedback on the Reduction of the Impact"]
+    },
+    {
+      "id": "s5",
+      "tag": "발끌기 러닝",
+      "question": "발을 끌면서 뛰면 발목이랑 정강이 근육에 어떤 변화가 생겨?",
+      "expected_doc_ids": ["Changes in ankle work, foot work, and tibialis anterior activation"]
+    },
+    {
+      "id": "s6",
+      "tag": "발끌기 러닝",
+      "question": "케이던스나 신발, 인솔로 발끌기 같은 달리기 자세를 개선할 수 있어?",
+      "expected_doc_ids": ["Biomechanical Strategies to Improve Running"]
+    },
+    {
+      "id": "s7",
+      "tag": "발끌기 러닝",
+      "question": "장거리 달리기 후반부에 발이 지면에 끌리는 이유가 뭐야?",
+      "expected_doc_ids": ["Changes in ankle work, foot work, and tibialis anterior activation"]
+    },
+    {
+      "id": "s8",
+      "tag": "좁은 보폭 러닝",
+      "question": "보폭이 짧고 케이던스가 낮으면 어떤 문제가 생겨?",
+      "expected_doc_ids": ["A One Session Gait Retraining Protocol", "Effect of stride length on the running"]
+    },
+    {
+      "id": "s9",
+      "tag": "좁은 보폭 러닝",
+      "question": "메트로놈으로 케이던스를 늘리는 훈련이 효과가 있어?",
+      "expected_doc_ids": ["A One Session Gait Retraining Protocol"]
+    },
+    {
+      "id": "s10",
+      "tag": "좁은 보폭 러닝",
+      "question": "나이가 들면 보폭이나 달리기 자세가 어떻게 달라져?",
+      "expected_doc_ids": ["The Relationships between Age"]
+    },
+    {
+      "id": "s11",
+      "tag": "좁은 보폭 러닝",
+      "question": "햄스트링이랑 대퇴사두근 근력이 보폭이랑 관련이 있어?",
+      "expected_doc_ids": ["Running gait biomechanics associated with hamstring"]
+    },
+    {
+      "id": "s12",
+      "tag": "좁은 보폭 러닝",
+      "question": "달리기 경제성을 높이는 데 어떤 자세 요소가 중요해?",
+      "expected_doc_ids": ["Is There an Economical Running Technique"]
+    },
+    {
+      "id": "s13",
+      "tag": "좁은 보폭 러닝",
+      "question": "달릴 때 하지 근육들이 각각 어떤 역할을 해?",
+      "expected_doc_ids": ["Lower-Limb Muscular Strategies"]
+    },
+    {
+      "id": "s14",
+      "tag": "좁은 보폭 러닝",
+      "question": "피로가 쌓이면 보폭이나 발바닥 압력 분포가 어떻게 변해?",
+      "expected_doc_ids": ["The Influence of General and Local Muscle Fatigue on"]
+    },
+    {
+      "id": "s15",
+      "tag": "페이스 변화 러닝",
+      "question": "GPS로 페이스 피드백을 받으면 젖산역치 페이스를 더 잘 지킬 수 있어?",
+      "expected_doc_ids": ["Effect of GPS feedback on Lactate ThreshoId Pacing"]
+    },
+    {
+      "id": "s16",
+      "tag": "페이스 변화 러닝",
+      "question": "외부 피드백이 러너의 페이스에 실제로 영향을 줘?",
+      "expected_doc_ids": ["External Feedback Does Not Affect Running Pace in Recreational Runners"]
+    },
+    {
+      "id": "s17",
+      "tag": "페이스 변화 러닝",
+      "question": "고도(오르막/내리막) 변화가 페이싱 전략에 영향을 줘?",
+      "expected_doc_ids": ["Elevation variability and pacing regulation"]
+    },
+    {
+      "id": "s18",
+      "tag": "페이스 변화 러닝",
+      "question": "웨어러블 실시간 피드백이 부상이나 퍼포먼스에 도움이 돼?",
+      "expected_doc_ids": ["The Effect of Wearable-Based"]
+    },
+    {
+      "id": "s19",
+      "tag": "페이스 변화 러닝",
+      "question": "피드백 방식에 따라 필드 테스트에서 페이스 준수도가 달라져?",
+      "expected_doc_ids": ["Effects of different feedback variants on pacing"]
+    },
+    {
+      "id": "s20",
+      "tag": "안정 러닝",
+      "question": "10km를 뛰는 동안 걸음 변동성과 피로도가 어떻게 관련돼?",
+      "expected_doc_ids": ["Gait variability and fatigability during a simulated 10‑km running"]
+    }
+  ],
+  "multi_turn": [
+    {
+      "id": "m1",
+      "topic_shift": false,
+      "history": [
+        {"role": "user", "content": "충격 과다 러닝이 뭐야?"},
+        {"role": "assistant", "content": "착지할 때 지면 반발력이 평소보다 크게 실리는 상태를 말해요."}
+      ],
+      "question": "그럼 어떻게 줄여?",
+      "expected_doc_ids": ["Enhancing running injury prevention strategies", "Field-Based Gait Retraining to Reduce Impact Loading"]
+    },
+    {
+      "id": "m2",
+      "topic_shift": false,
+      "history": [
+        {"role": "user", "content": "보폭이 좁다는 게 무슨 뜻이야?"},
+        {"role": "assistant", "content": "평소보다 한 걸음의 길이가 짧고 케이던스가 낮아진 상태예요."}
+      ],
+      "question": "왜 이런 게 문제가 돼?",
+      "expected_doc_ids": ["Effect of stride length on the running", "Is There an Economical Running Technique"]
+    },
+    {
+      "id": "m3",
+      "topic_shift": false,
+      "history": [
+        {"role": "user", "content": "페이스가 계속 흔들리는 이유가 뭘까?"},
+        {"role": "assistant", "content": "지형이나 피로, 외부 피드백 등 여러 요인이 있어요."}
+      ],
+      "question": "오르막이랑 관련 있어?",
+      "expected_doc_ids": ["Elevation variability and pacing regulation"]
+    },
+    {
+      "id": "m4",
+      "topic_shift": false,
+      "history": [
+        {"role": "user", "content": "발끌기 러닝이 뭔지 알려줘"},
+        {"role": "assistant", "content": "스윙 구간에서 발이 지면 가까이 끌리듯 지나가는 걸음이에요."}
+      ],
+      "question": "장거리 뛰면 더 심해져?",
+      "expected_doc_ids": ["Changes in ankle work, foot work, and tibialis anterior activation"]
+    },
+    {
+      "id": "m5",
+      "topic_shift": true,
+      "history": [
+        {"role": "user", "content": "충격 과다 러닝이 뭐야?"},
+        {"role": "assistant", "content": "착지할 때 지면 반발력이 평소보다 크게 실리는 상태를 말해요."}
+      ],
+      "question": "그럼 보폭은 어때?",
+      "expected_doc_ids": ["Effect of stride length on the running", "A One Session Gait Retraining Protocol"]
+    },
+    {
+      "id": "m6",
+      "topic_shift": true,
+      "history": [
+        {"role": "user", "content": "보폭이 좁으면 왜 안 좋아?"},
+        {"role": "assistant", "content": "보폭이 짧아지면 러닝 경제성이 떨어질 수 있어요."}
+      ],
+      "question": "케이던스 훈련은 어떻게 해?",
+      "expected_doc_ids": ["A One Session Gait Retraining Protocol"]
+    },
+    {
+      "id": "m7",
+      "topic_shift": true,
+      "history": [
+        {"role": "user", "content": "페이스가 왜 흔들렸어?"},
+        {"role": "assistant", "content": "오르막 구간에서 페이싱이 무너진 것으로 보여요."}
+      ],
+      "question": "발끌기 문제는 없었어?",
+      "expected_doc_ids": ["Changes in ankle work, foot work, and tibialis anterior activation"]
+    },
+    {
+      "id": "m8",
+      "topic_shift": true,
+      "history": [
+        {"role": "user", "content": "안정적으로 잘 뛰었다는데 무슨 뜻이야?"},
+        {"role": "assistant", "content": "구간 전체에서 걸음 패턴 변화가 거의 없었다는 뜻이에요."}
+      ],
+      "question": "착지 충격은 괜찮았어?",
+      "expected_doc_ids": ["Effects of Running Speed and Visual Feedback on the Reduction of the Impact", "Enhancing running injury prevention strategies"]
+    }
+  ]
+}

@@ -3,3 +3,4 @@ nohup.out
 venv
 __pycache__
 *.pyc
+app/data/paper/
