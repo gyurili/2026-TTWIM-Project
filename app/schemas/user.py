@@ -24,6 +24,7 @@ class UserOut(BaseModel):
     height: int
     weight: int
     is_calibrated: bool = False
+    total_running_km: float = 0.0
     created_at: Optional[datetime]
 
     class Config:

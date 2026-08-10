@@ -291,7 +291,7 @@ def _build_prompt(stats: dict, ratio: float, dtw: dict, slope: str | None = None
         lines += [
             "[지형 변화]",
             f"- 기압계 기반 고도 추정 결과, 최근 러닝은 {_SLOPE_DESC[slope]}으로 판단됩니다.",
-            f"- 현재 구간은 {_SLOPE_DESC[slope]}입니다."
+            f"- 현재 구간은 {_SLOPE_DESC[slope]}입니다. "
             f"충격/케이던스/페이스 변화가 지형에 의한 자연스러운 결과일 수 있음을 고려하여 조언에 반영해주세요.",
             "",
         ]

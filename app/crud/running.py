@@ -61,6 +61,16 @@ def upsert_feedback(db: Session, session_id: int, user_id: UUID, data: dict) -> 
     return existing
 
 
+def get_total_distance_m(db: Session, user_id: UUID) -> Decimal:
+    """해당 사용자의 누적 총 러닝 거리(m)를 반환한다. 러닝 기록이 없으면 0."""
+    total = (
+        db.query(func.sum(RunningSession.total_distance_m))
+        .filter(RunningSession.user_id == user_id)
+        .scalar()
+    )
+    return total or Decimal("0")
+
+
 def get_weekly_distance_by_date(
     db: Session, user_id: UUID, week_start: date, week_end_exclusive: date
 ) -> dict[date, Decimal]:
