@@ -60,6 +60,11 @@ _SYSTEM_INSTRUCTION = (
     "- 원인 설명, 조언, 주의사항처럼 서로 다른 이야기가 섞이면 한 문단에 다 욱여넣지 말고 "
     "1~2문장 단위로 문단을 나눠 그 사이에 빈 줄(\\n\\n)을 넣으세요. 답변 전체가 줄바꿈 없는 "
     "하나의 긴 덩어리 문단이 되지 않게 하세요.\n"
+    "- 실행할 방법이나 팁이 2개 이상 나열될 때는 문장으로 풀어쓰지 말고 마크다운 리스트로 "
+    "쓰세요. 순서가 있으면 '1. 2. 3.', 순서가 없으면 '- '를 각 줄 맨 앞에 붙이고, 각 줄은 "
+    "새 줄(\\n)로 구분하세요. 리스트 항목 하나는 한 문장 이내로 짧게 쓰고, 리스트는 최대 4개 "
+    "항목까지만 쓰세요. 이 경우 위의 '4문장 이내' 기준은 리스트 항목이 아니라 리스트 앞뒤의 "
+    "설명 문장에만 적용됩니다.\n"
     "- 답변에서 사용자가 실제로 기억하고 실행해야 할 핵심 키워드(구체적인 동작·부위)와 "
     "목표 수치(퍼센트, 횟수, 시간 등)는 반드시 마크다운 굵게 표시(**단어**)로 감싸세요. "
     "예: **케이던스**를 **5~10%** 높여보세요. 문단마다 많아야 2~3개만 강조하고, "
@@ -259,6 +264,7 @@ def _call_llm(prompt: str) -> _ChatOutput | None:
     return None
 
 
+@traceable(name="answer_question", project_name="azas-chat")
 def answer_question(db: Session, session: RunningSession, user, question: str) -> ChatAnswerOut:
     feedback = get_feedback_by_session(db, session.session_id)
     if not feedback:
