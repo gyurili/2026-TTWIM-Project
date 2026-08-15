@@ -6,7 +6,9 @@
       "question": "착지할 때 충격이 큰 이유가 뭐야?",
       "expected_doc_ids": [
         "Effects of Running Speed and Visual Feedback on the Reduction of the Impact",
-        "Enhancing running injury prevention strategies"
+        "Enhancing running injury prevention strategies",
+        "Guide to Runners Foot Strike_ Should You Correct It_",
+        "Healthy Habits for Distance Running"
       ]
     },
     {
@@ -40,13 +42,21 @@
       "id": "s6",
       "tag": "발끌기 러닝",
       "question": "케이던스나 신발, 인솔로 발끌기 같은 달리기 자세를 개선할 수 있어?",
-      "expected_doc_ids": ["Biomechanical Strategies to Improve Running"]
+      "expected_doc_ids": [
+        "Biomechanical Strategies to Improve Running",
+        "성모탑정형외과,사당정형외과, 이수역정형외과 _ 올바른 러닝방법",
+        "Running Cadence_ What It Is, Why It Matters, How to Improve It"
+      ]
     },
     {
       "id": "s7",
       "tag": "발끌기 러닝",
       "question": "장거리 달리기 후반부에 발이 지면에 끌리는 이유가 뭐야?",
-      "expected_doc_ids": ["Changes in ankle work, foot work, and tibialis anterior activation"]
+      "expected_doc_ids": [
+        "Changes in ankle work, foot work, and tibialis anterior activation",
+        "Healthy Habits for Distance Running",
+        "Avoid Injury and Boost Performance on Long, Slow Runs"
+      ]
     },
     {
       "id": "s8",
@@ -58,7 +68,10 @@
       "id": "s9",
       "tag": "좁은 보폭 러닝",
       "question": "메트로놈으로 케이던스를 늘리는 훈련이 효과가 있어?",
-      "expected_doc_ids": ["A One Session Gait Retraining Protocol"]
+      "expected_doc_ids": [
+        "A One Session Gait Retraining Protocol",
+        "A Simple Drill to Correct Overstriding _ Runner's World"
+      ]
     },
     {
       "id": "s10",
@@ -88,7 +101,7 @@
       "id": "s14",
       "tag": "좁은 보폭 러닝",
       "question": "피로가 쌓이면 보폭이나 발바닥 압력 분포가 어떻게 변해?",
-      "expected_doc_ids": ["The Influence of General and Local Muscle Fatigue on"]
+      "expected_doc_ids": ["The Influence of General and Local Muscle Fatigue on", "sensors-22-09300"]
     },
     {
       "id": "s15",
@@ -156,7 +169,7 @@
         {"role": "assistant", "content": "지형이나 피로, 외부 피드백 등 여러 요인이 있어요."}
       ],
       "question": "오르막이랑 관련 있어?",
-      "expected_doc_ids": ["Elevation variability and pacing regulation"]
+      "expected_doc_ids": ["Elevation variability and pacing regulation", "완벽한 러닝을 완성하는 방법. 나이키 코리아"]
     },
     {
       "id": "m4",
@@ -166,7 +179,10 @@
         {"role": "assistant", "content": "스윙 구간에서 발이 지면 가까이 끌리듯 지나가는 걸음이에요."}
       ],
       "question": "장거리 뛰면 더 심해져?",
-      "expected_doc_ids": ["Changes in ankle work, foot work, and tibialis anterior activation"]
+      "expected_doc_ids": [
+        "Changes in ankle work, foot work, and tibialis anterior activation",
+        "Avoid Injury and Boost Performance on Long, Slow Runs"
+      ]
     },
     {
       "id": "m5",
@@ -176,7 +192,12 @@
         {"role": "assistant", "content": "착지할 때 지면 반발력이 평소보다 크게 실리는 상태를 말해요."}
       ],
       "question": "그럼 보폭은 어때?",
-      "expected_doc_ids": ["Effect of stride length on the running", "A One Session Gait Retraining Protocol"]
+      "expected_doc_ids": [
+        "Effect of stride length on the running",
+        "A One Session Gait Retraining Protocol",
+        "Establish Safe (Fast) Running Mechanics in Two Months – Article #1 Short vs. Long Strides — BOB Gear",
+        "Slow Runs Helped Me Go Farther_ Marathon Shuffle Explained"
+      ]
     },
     {
       "id": "m6",
@@ -186,7 +207,12 @@
         {"role": "assistant", "content": "보폭이 짧아지면 러닝 경제성이 떨어질 수 있어요."}
       ],
       "question": "케이던스 훈련은 어떻게 해?",
-      "expected_doc_ids": ["A One Session Gait Retraining Protocol"]
+      "expected_doc_ids": [
+        "A One Session Gait Retraining Protocol",
+        "Running Cadence_ What It Is, Why It Matters, How to Improve It",
+        "A Simple Drill to Correct Overstriding _ Runner's World",
+        "Vertical Oscillation_ What It Is, Why It Matters, How to Improve"
+      ]
     },
     {
       "id": "m7",
