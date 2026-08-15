@@ -38,6 +38,13 @@ _LLM_TIMEOUT_MS = 60_000
 _LLM_MAX_RETRIES = 2  # 최초 시도 포함 총 3회 호출
 _LLM_RETRY_BACKOFF_BASE_SEC = 1.5
 _RETRYABLE_STATUS_CODES = {408, 429, 500, 502, 503, 504}
+# 시도당 타임아웃만 두면 재시도가 겹칠 때 총 소요시간이 60초의 배수로 계속 늘어난다
+# (예: 1차 시도가 60초 꽉 채워 타임아웃 → 2차 시도가 또 60초 근처까지 걸리면 총 2분 이상).
+# 그래서 _call_llm 전체(모든 시도+백오프 합산)에 상한을 두고, 그 예산 안에서만 재시도한다.
+# 프론트 axios 타임아웃(현재 1분)보다 몇 초 여유 있게 짧게 잡아서, 프론트가 타임아웃으로
+# 판단하기 전에 백엔드가 먼저 (성공이든 폴백이든) 응답을 끝내도록 한다.
+# 주의: 프론트 타임아웃 값이 바뀌면 이 값도 같이 재검토해야 한다.
+_LLM_TOTAL_BUDGET_SEC = 55
 
 # dtwContext 해석 가이드에 명시된 값. 임의로 정한 게 아니라 데이터 생성 쪽(ML/DTW) 스펙을 그대로 따른다.
 _STATUS_LABELS = {"stable": "안정 (평소와 거의 같음)", "drift": "이탈 시작 (주의 관찰 필요)", "alert": "경고 (개입 권장)"}
@@ -474,8 +481,22 @@ def _is_retryable_error(e: Exception) -> bool:
 @traceable(name="call_llm")
 def _call_llm(prompt: str) -> _FeedbackOutput | None:
     last_error: Exception | None = None
+    # 재시도까지 포함한 전체 소요시간이 프론트 타임아웃을 넘지 않도록 하는 전체 예산 마감시각.
+    # 시도당 타임아웃(_LLM_TIMEOUT_MS)만으로는 재시도가 겹칠 때 총 소요시간이 계속 늘어나는 걸
+    # 막을 수 없어서, 이 데드라인으로 "몇 번을 재시도하든 총합은 이 안에서 끝난다"를 보장한다.
+    deadline = time.monotonic() + _LLM_TOTAL_BUDGET_SEC
 
     for attempt in range(_LLM_MAX_RETRIES + 1):
+        remaining_sec = deadline - time.monotonic()
+        if remaining_sec <= 1:
+            # 남은 예산이 거의 없으면 시도해봐야 곧바로 잘릴 뿐이므로 바로 포기한다.
+            logger.warning(
+                "LLM 호출 예산 소진으로 재시도 중단 (세션 피드백, 시도 %d/%d 진입 전, 남은 예산=%.1fs)",
+                attempt + 1, _LLM_MAX_RETRIES + 1, remaining_sec,
+            )
+            break
+        # 이번 시도에는 "시도당 상한"과 "남은 전체 예산" 중 더 짧은 쪽을 타임아웃으로 준다.
+        attempt_timeout_ms = int(min(_LLM_TIMEOUT_MS, remaining_sec * 1000))
         try:
             client = genai.Client(api_key=settings.GEMINI_API_KEY)
             response = client.models.generate_content(
@@ -487,7 +508,7 @@ def _call_llm(prompt: str) -> _FeedbackOutput | None:
                     max_output_tokens=4000,
                     response_mime_type="application/json",
                     response_schema=_FeedbackOutput,
-                    http_options=genai.types.HttpOptions(timeout=_LLM_TIMEOUT_MS),
+                    http_options=genai.types.HttpOptions(timeout=attempt_timeout_ms),
                 ),
             )
             parsed = getattr(response, "parsed", None)
@@ -505,6 +526,10 @@ def _call_llm(prompt: str) -> _FeedbackOutput | None:
                 break
             # 지수 백오프 + 지터: 동시 실패한 여러 요청이 한꺼번에 재시도로 몰리는 걸 방지
             sleep_sec = _LLM_RETRY_BACKOFF_BASE_SEC * (2 ** attempt) + random.uniform(0, 0.5)
+            remaining_sec = deadline - time.monotonic()
+            if sleep_sec >= remaining_sec:
+                # 백오프만으로 남은 예산을 다 써버리는 경우 재시도할 시간이 없으므로 바로 포기한다.
+                break
             time.sleep(sleep_sec)
 
     logger.error("LLM 호출 최종 실패 (세션 피드백): %s", last_error)
