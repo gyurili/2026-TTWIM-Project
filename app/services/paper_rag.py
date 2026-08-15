@@ -109,7 +109,10 @@ def _rerank(client: genai.Client, query: str, candidates: list[dict], top_k: int
         f"[사용자 질문]\n{query}\n\n"
         f"[후보 문헌 발췌]\n{numbered}\n\n"
         "위 후보들을 사용자 질문에 실제로 답이 되는 정도가 높은 순서로 번호만 정렬해 반환하세요. "
-        "질문과 무관한 후보는 목록에서 제외해도 됩니다."
+        "질문과 무관한 후보는 목록에서 제외해도 됩니다. "
+        "관련도가 비슷하다면, '(저자, 연도)' 인용을 나열하며 여러 선행연구를 소개만 하는 문장보다 "
+        "그 자체로 완결된 설명·결론·실행 지침을 담은 문장을 우선하세요 — 인용 나열 문장은 주제어는 "
+        "겹치더라도 코칭 답변에 그대로 근거로 쓰기 어렵습니다."
     )
     try:
         response = client.models.generate_content(
