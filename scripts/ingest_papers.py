@@ -19,6 +19,7 @@ import random
 import re
 import sys
 import time
+from difflib import SequenceMatcher
 from pathlib import Path
 
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
@@ -58,6 +59,10 @@ RETRY_BACKOFF_BASE_SEC = 2.0
 
 _REFERENCES_HEADING = re.compile(r"\n\s*(references|bibliography|참고\s*문헌)\s*\n", re.IGNORECASE)
 _HANGUL = re.compile(r"[가-힣]")
+_DUP_SIMILARITY_THRESHOLD = 0.5
+_DUP_COMPARE_CHARS = 300
+_DUP_SHORT_CHUNK_CHARS = 200
+_DUP_CONTAINMENT_THRESHOLD = 0.7
 
 
 def _is_retryable_error(e: Exception) -> bool:
@@ -95,6 +100,28 @@ def detect_lang(text: str) -> str:
     return "ko" if ratio > 0.15 else "en"
 
 
+def _is_near_duplicate(a: str, b: str) -> bool:
+    if SequenceMatcher(None, a[:_DUP_COMPARE_CHARS], b[:_DUP_COMPARE_CHARS]).ratio() > _DUP_SIMILARITY_THRESHOLD:
+        return True
+    shorter, longer = (a, b) if len(a) <= len(b) else (b, a)
+    if len(shorter) < _DUP_SHORT_CHUNK_CHARS:
+        containment = SequenceMatcher(None, shorter, longer[: len(shorter) + 100]).ratio()
+        if containment > _DUP_CONTAINMENT_THRESHOLD:
+            return True
+    return False
+
+
+def dedupe_chunks(chunks: list[dict]) -> list[dict]:
+    """연속 청크가 직전에 채택한 청크와 근접 중복이면 버린다. 채택된 청크하고만 비교해야
+    A-B-A' 같은 연쇄(B를 버렸는데 A'가 A와 또 겹치는 경우)도 잡는다."""
+    out: list[dict] = []
+    for c in chunks:
+        if out and _is_near_duplicate(out[-1]["content"], c["content"]):
+            continue
+        out.append(c)
+    return out
+
+
 def chunk_pdf(pdf_path: Path) -> list[dict]:
     """PDF 한 편을 {doc_id, title, page, lang, content} 청크 리스트로 변환한다."""
     doc_id = pdf_path.stem
@@ -124,7 +151,7 @@ def chunk_pdf(pdf_path: Path) -> list[dict]:
                     "content": piece,
                 }
             )
-    return chunks
+    return dedupe_chunks(chunks)
 
 
 def embed_batch(client: genai.Client, texts: list[str]) -> list[list[float]]:
