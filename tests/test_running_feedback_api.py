@@ -12,7 +12,15 @@ _MOCK_FEEDBACK = feedback_service._FeedbackOutput(
 )
 
 
-def _create_session(client, headers, tags=("안정 러닝",)):
+def _create_session(
+    client,
+    headers,
+    tags=("안정 러닝",),
+    window_start_time=None,
+    window_end_time=None,
+):
+    window_start_time = _STARTED_AT if window_start_time is None else window_start_time
+    window_end_time = _STARTED_AT + 10_000 if window_end_time is None else window_end_time
     payload = {
         "mode": "outdoor",
         "route": None,
@@ -26,8 +34,8 @@ def _create_session(client, headers, tags=("안정 러닝",)):
                 "tags": list(tags),
                 "feedbackText": None,
                 "dtwContext": None,
-                "windowStartTime": _STARTED_AT,
-                "windowEndTime": _STARTED_AT + 10_000,
+                "windowStartTime": window_start_time,
+                "windowEndTime": window_end_time,
             }
         ],
     }
@@ -58,6 +66,26 @@ def test_generate_feedback_with_mocked_llm(client, monkeypatch):
     assert data["tagRatio"] == {"안정 러닝": 1.0}
     assert data["sessionSummary"]["distanceKm"] == 0.8
     assert call_count["n"] == 1
+
+
+def test_feedback_timeline_uses_earliest_window_when_window_precedes_session(client, monkeypatch):
+    _, headers = signup_and_login(client)
+    session_id = _create_session(
+        client,
+        headers,
+        tags=("충격 과다 러닝",),
+        window_start_time=_STARTED_AT - 33 * 60 * 1000,
+        window_end_time=_STARTED_AT - 19 * 60 * 1000,
+    )
+
+    monkeypatch.setattr(feedback_service, "_call_llm", lambda prompt: _MOCK_FEEDBACK)
+
+    res = client.post(f"/running/{session_id}/feedback", headers=headers)
+
+    assert res.status_code == 200
+    assert res.json()["data"]["timeline"] == [
+        {"tag": "충격 과다 러닝", "startMin": 0, "endMin": 14}
+    ]
 
 
 def test_feedback_is_cached_on_second_call(client, monkeypatch):

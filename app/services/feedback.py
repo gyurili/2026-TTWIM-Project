@@ -231,6 +231,15 @@ def _build_timeline(session: RunningSession, windows: list[SessionWindow]) -> li
         return []
 
     session_start_ms = kst_naive_to_epoch_ms(session.start_time)
+    session_end_ms = kst_naive_to_epoch_ms(session.end_time)
+    earliest_window_start_ms = min(w.window_start_time for w in windows)
+
+    # 일부 클라이언트/기기 조합에서 session.startedAt보다 window timestamp가 먼저 들어오는
+    # 경우가 있다. 타임라인은 사용자에게 보여주는 "러닝 시작 후 N분" 값이므로, 그런 경우
+    # 가장 이른 window를 기준점으로 삼아 음수 구간이 저장되지 않게 한다.
+    timeline_base_ms = min(session_start_ms, earliest_window_start_ms)
+    max_elapsed_ms = max(session_end_ms, max(w.window_end_time for w in windows)) - timeline_base_ms
+
     segments: list[dict] = []
     for w in windows:
         tag = _dominant_tag(w.tags or [])
@@ -244,8 +253,8 @@ def _build_timeline(session: RunningSession, windows: list[SessionWindow]) -> li
     return [
         {
             "tag": seg["tag"],
-            "start_min": round((seg["start_ms"] - session_start_ms) / 60000),
-            "end_min": round((seg["end_ms"] - session_start_ms) / 60000),
+            "start_min": round(max(0, seg["start_ms"] - timeline_base_ms) / 60000),
+            "end_min": round(min(max_elapsed_ms, max(0, seg["end_ms"] - timeline_base_ms)) / 60000),
         }
         for seg in segments
     ]
