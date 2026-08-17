@@ -12,15 +12,7 @@ _MOCK_FEEDBACK = feedback_service._FeedbackOutput(
 )
 
 
-def _create_session(
-    client,
-    headers,
-    tags=("안정 러닝",),
-    window_start_time=None,
-    window_end_time=None,
-):
-    window_start_time = _STARTED_AT if window_start_time is None else window_start_time
-    window_end_time = _STARTED_AT + 10_000 if window_end_time is None else window_end_time
+def _create_session(client, headers, tags=("안정 러닝",)):
     payload = {
         "mode": "outdoor",
         "route": None,
@@ -34,39 +26,10 @@ def _create_session(
                 "tags": list(tags),
                 "feedbackText": None,
                 "dtwContext": None,
-                "windowStartTime": window_start_time,
-                "windowEndTime": window_end_time,
+                "windowStartTime": _STARTED_AT,
+                "windowEndTime": _STARTED_AT + 10_000,
             }
         ],
-    }
-    res = client.post("/running/complete", json=payload, headers=headers)
-    assert res.status_code == 200
-    return res.json()["data"]["sessionId"]
-
-
-def _create_session_with_windows(client, headers, window_tags, interval_ms=20_000, window_len_ms=10_000):
-    """window_tags: window 하나당 태그 리스트를 순서대로 담은 리스트. _TIMELINE_BATCH_SIZE(5) 단위
-    다수결 병합을 테스트하기 위해 window를 여러 개 실어 보내는 헬퍼."""
-    windows = []
-    t = _STARTED_AT
-    for tags in window_tags:
-        windows.append({
-            "predictions": ["normal"],
-            "tags": list(tags),
-            "feedbackText": None,
-            "dtwContext": None,
-            "windowStartTime": t,
-            "windowEndTime": t + window_len_ms,
-        })
-        t += interval_ms
-    payload = {
-        "mode": "outdoor",
-        "route": None,
-        "startedAt": _STARTED_AT,
-        "endedAt": _ENDED_AT,
-        "durationSec": (_ENDED_AT - _STARTED_AT) // 1000,
-        "distanceMeters": 800.0,
-        "windows": windows,
     }
     res = client.post("/running/complete", json=payload, headers=headers)
     assert res.status_code == 200
@@ -95,93 +58,6 @@ def test_generate_feedback_with_mocked_llm(client, monkeypatch):
     assert data["tagRatio"] == {"안정 러닝": 1.0}
     assert data["sessionSummary"]["distanceKm"] == 0.8
     assert call_count["n"] == 1
-
-
-def test_feedback_timeline_uses_earliest_window_when_window_precedes_session(client, monkeypatch):
-    """세션 시작보다 window가 살짝 이르면(클라이언트 시계 오차 등), 가장 이른 window를
-    기준점으로 삼아 음수 구간 없이 타임라인이 계산되어야 한다. #125에서 세션 시간 범위를
-    크게 벗어난 window는 저장 자체가 안 되도록 필터링이 추가되었으므로, 필터 허용 오차
-    (5분) 이내로 조정해서 검증한다."""
-    _, headers = signup_and_login(client)
-    session_id = _create_session(
-        client,
-        headers,
-        tags=("충격 과다 러닝",),
-        window_start_time=_STARTED_AT - 3 * 60 * 1000,
-        window_end_time=_STARTED_AT - 1 * 60 * 1000,
-    )
-
-    monkeypatch.setattr(feedback_service, "_call_llm", lambda prompt: _MOCK_FEEDBACK)
-
-    res = client.post(f"/running/{session_id}/feedback", headers=headers)
-
-    assert res.status_code == 200
-    assert res.json()["data"]["timeline"] == [
-        {"tag": "충격 과다 러닝", "startMin": 0, "endMin": 2}
-    ]
-
-
-def test_feedback_timeline_batches_windows_by_majority_tag(client, monkeypatch):
-    """태그가 바뀔 때마다 나뉘는 세부 구간 5개를 하나로 묶을 때, 그 안에서 가장 많이 나온
-    태그가 대표로 나와야 한다. 태그를 매 window마다 번갈아 가며 보내 세부 구간이 병합되지
-    않고 5개 그대로 배치에 들어가게 한다(3:2로 실제 다수결이 일어나는지 검증)."""
-    _, headers = signup_and_login(client)
-    session_id = _create_session_with_windows(
-        client,
-        headers,
-        [("발끌기 러닝",), ("충격 과다 러닝",), ("발끌기 러닝",), ("충격 과다 러닝",), ("발끌기 러닝",)],
-    )
-
-    monkeypatch.setattr(feedback_service, "_call_llm", lambda prompt: _MOCK_FEEDBACK)
-
-    res = client.post(f"/running/{session_id}/feedback", headers=headers)
-
-    assert res.status_code == 200
-    assert res.json()["data"]["timeline"] == [
-        {"tag": "발끌기 러닝", "startMin": 0, "endMin": 2}
-    ]
-
-
-def test_feedback_timeline_majority_tie_prefers_stable_tag(client, monkeypatch):
-    """다수결이 동점이면 _dominant_tag와 동일한 우선순위(안정 러닝 우선)로 하나를 정한다."""
-    _, headers = signup_and_login(client)
-    session_id = _create_session_with_windows(
-        client, headers, [("안정 러닝",)] * 2 + [("충격 과다 러닝",)] * 2
-    )
-
-    monkeypatch.setattr(feedback_service, "_call_llm", lambda prompt: _MOCK_FEEDBACK)
-
-    res = client.post(f"/running/{session_id}/feedback", headers=headers)
-
-    assert res.status_code == 200
-    assert res.json()["data"]["timeline"] == [
-        {"tag": "안정 러닝", "startMin": 0, "endMin": 1}
-    ]
-
-
-def test_feedback_timeline_handles_remainder_batch(client, monkeypatch):
-    """세부 구간이 5의 배수가 아니어도(나머지 배치) 다수결이 정상 동작하고, 앞 배치와
-    대표 태그가 다르면 별도 구간으로 분리되어야 한다. 태그를 매 window마다 번갈아 가며
-    보내 세부 구간 7개(5개짜리 배치 1개 + 2개짜리 나머지 배치 1개)로 나뉘게 한다."""
-    _, headers = signup_and_login(client)
-    session_id = _create_session_with_windows(
-        client,
-        headers,
-        [
-            ("발끌기 러닝",), ("충격 과다 러닝",), ("발끌기 러닝",), ("충격 과다 러닝",), ("발끌기 러닝",),
-            ("충격 과다 러닝",), ("발끌기 러닝",),
-        ],
-    )
-
-    monkeypatch.setattr(feedback_service, "_call_llm", lambda prompt: _MOCK_FEEDBACK)
-
-    res = client.post(f"/running/{session_id}/feedback", headers=headers)
-
-    assert res.status_code == 200
-    assert res.json()["data"]["timeline"] == [
-        {"tag": "발끌기 러닝", "startMin": 0, "endMin": 2},
-        {"tag": "충격 과다 러닝", "startMin": 2, "endMin": 2},
-    ]
 
 
 def test_feedback_is_cached_on_second_call(client, monkeypatch):

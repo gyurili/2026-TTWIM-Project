@@ -1,5 +1,8 @@
 import numpy as np
+import pytest
 
+from app.api.predict import _latest_abnormal_run_indices
+from app.schemas.predict import StepPrediction
 from app.services import coaching as coaching_service
 from tests.conftest import signup_and_login
 
@@ -56,6 +59,25 @@ def _predict_payload(steps):
         },
         "altitudeContext": {"readings": [0.1, 0.15, 0.1]},
     }
+
+
+@pytest.mark.parametrize(
+    ("codes", "expected"),
+    [
+        ([1, 0, 1, 0, 1], [4]),
+        ([0, 0, 1, 1, 1], [2, 3, 4]),
+        ([1, 0, 1, 1, 0], [2, 3]),
+        ([1, 1, 1], [0, 1, 2]),
+        ([0, 0, 0], []),
+    ],
+)
+def test_latest_abnormal_run_indices_uses_only_most_recent_contiguous_run(codes, expected):
+    predictions = [
+        StepPrediction(prediction_code=code, prediction_label="abnormal" if code else "normal")
+        for code in codes
+    ]
+
+    assert _latest_abnormal_run_indices(predictions) == expected
 
 
 def test_predict_requires_token(client):

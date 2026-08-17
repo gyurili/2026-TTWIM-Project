@@ -1,19 +1,60 @@
 import json
 import logging
 import random
+from typing import Literal
 
 import numpy as np
 from scipy.signal import find_peaks
 from google import genai
 from langsmith import traceable
 from openai import OpenAI
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 ABNORMAL_TAGS: list[str] = ["충격 과다 러닝", "발끌기 러닝", "좁은 보폭 러닝", "페이스 변화 러닝"]
+
+# 실시간 코칭의 행동은 이 목록 안에서만 선택한다. 수치 해석과 문장 표현은 LLM에
+# 맡기되, 사용자가 실제로 수행할 동작의 범위는 코드가 일관되게 관리한다.
+COACHING_ACTIONS: dict[str, tuple[tuple[str, str], ...]] = {
+    "충격 과다 러닝": (
+        ("impact_bend_knees", "무릎을 부드럽게 굽혀 충격 흡수"),
+        ("impact_land_under_body", "발을 몸 아래에 가볍게 딛기"),
+        ("impact_relax_landing", "착지할 때 다리 힘 빼기"),
+        ("impact_shift_center", "몸의 중심을 살짝 앞으로 옮기기"),
+    ),
+    "발끌기 러닝": (
+        ("drag_swing_thigh", "허벅지를 앞으로 보내기"),
+        ("drag_lift_knee", "무릎을 가볍게 들어 올리기"),
+        ("drag_pull_toes", "발끝을 몸쪽으로 당기기"),
+        ("drag_lift_foot", "발을 지면에서 가볍게 떼기"),
+    ),
+    "좁은 보폭 러닝": (
+        ("stride_reduce_steps", "걸음 수를 의식적으로 줄이기"),
+        ("stride_tall_posture", "상체를 세우기"),
+        ("stride_larger_arm_swing", "팔을 더 크게 흔들기"),
+        ("stride_relax_shoulders", "어깨 힘을 빼고 팔을 흔들기"),
+    ),
+    "페이스 변화 러닝": (
+        ("pace_even_breathing", "호흡을 고르게 맞추기"),
+        ("pace_hold_rhythm", "일정한 리듬 유지하기"),
+        ("pace_match_arm_tempo", "팔 스윙 템포 맞추기"),
+        ("pace_hold_current_flow", "지금의 리듬을 그대로 유지하기"),
+    ),
+}
+_ACTION_TO_TAG = {
+    action_id: tag
+    for tag, actions in COACHING_ACTIONS.items()
+    for action_id, _ in actions
+}
+_ActionId = Literal[
+    "impact_bend_knees", "impact_land_under_body", "impact_relax_landing", "impact_shift_center",
+    "drag_swing_thigh", "drag_lift_knee", "drag_pull_toes", "drag_lift_foot",
+    "stride_reduce_steps", "stride_tall_posture", "stride_larger_arm_swing", "stride_relax_shoulders",
+    "pace_even_breathing", "pace_hold_rhythm", "pace_match_arm_tempo", "pace_hold_current_flow",
+]
 
 STABLE_TAG = "안정 러닝"
 STABLE_COACHING_TEXTS: list[str] = [
@@ -61,7 +102,18 @@ class InsufficientDataError(ValueError):
 
 class _CoachingOutput(BaseModel):
     text: str
-    tags: list[str]
+    # 허용된 4개 태그명으로 구조화 출력 자체를 제한한다 (ABNORMAL_TAGS와 값이 같아야 함 —
+    # 태그 종류가 바뀌면 여기도 같이 수정). list[str]로 두면 LLM이 가끔 "비정상" 같은 임의의
+    # 값을 반환하고, 이후 ABNORMAL_TAGS로 걸러내는 과정에서 태그가 통째로 빈 배열이 되어
+    # 이 window가 최종 리포트 타임라인/태그 비율 집계에서 누락된다 (text는 정상 노출됐는데
+    # 리포트에는 안 잡히는 불일치가 생김). Literal로 제한하면 구조화 출력 단계에서부터 이
+    # 값들만 나오도록 강제되어 애초에 발생하지 않는다.
+    # 실시간 안내는 한 가지 문제만 다룬다. 목록 타입은 API 응답 호환성을 유지하기 위함이다.
+    tags: list[Literal["충격 과다 러닝", "발끌기 러닝", "좁은 보폭 러닝", "페이스 변화 러닝"]] = Field(
+        min_length=1, max_length=1
+    )
+    # 문구에 사용한 동작 후보. API에는 노출하지 않고 태그-동작 일치 검증에만 사용한다.
+    action_id: _ActionId
 
 
 def _safe_div(numerator: float, denominator: float, floor: float = _EPS) -> float:
@@ -261,26 +313,40 @@ _SLOPE_DESC = {
     "downhill": "내리막",
 }
 
+def _format_action_candidates() -> list[str]:
+    """LLM이 선택할 수 있는 태그별 동작과 구조화 응답용 ID를 프롬프트로 만든다.
+    태그/동작 나열 순서를 매 호출마다 섞어, 항상 같은 순서로 제시할 때 생기는
+    '앞쪽 후보 쏠림'을 줄이고 동작 선택이 좀 더 고르게 분포하도록 한다."""
+    tags = list(COACHING_ACTIONS.items())
+    random.shuffle(tags)
+    lines = []
+    for tag, actions in tags:
+        shuffled_actions = list(actions)
+        random.shuffle(shuffled_actions)
+        choices = ", ".join(f"{action_id}: {label}" for action_id, label in shuffled_actions)
+        lines.append(f"- {tag}: {choices}")
+    return lines
+
 
 def _build_prompt(stats: dict, ratio: float, dtw: dict, slope: str | None = None) -> str:
     lines = [
         "[센서 통계: ML 비정상 판정 구간의 물리적 특징]",
         "1. 충격량 및 일관성 (충격 과다 판별 지표)",
         f" - 95% 최대 충격(impact_score): {stats['impact_score']}g",
-        f" - 지속성 관절 충격량(jerk_p95): {stats['jerk_p95']} / 정규화값(jerk_p95_norm, ÷acc_mag_rms): {stats['jerk_p95_norm']} (체중·키에 따라 절대값 기준선이 달라지므로 반드시 정규화값 기준으로 판단. 클수록 지속적인 충격 과다)",
-        f" - 수직 가속 범위(acc_z_range, p5~p95 기준): {stats['acc_z_range']}g (최대={stats['acc_z_max']}g, 최소={stats['acc_z_min']}g / 발을 안 들수록 이 범위가 극도로 좁아짐)",
-        f" - 수직 충격 변동성(acc_z_std): {stats['acc_z_std']} / 정규화값(acc_z_std_norm, ÷acc_mag_rms): {stats['acc_z_std_norm']}",
-        f" - 전체 충격 에너지(acc_mag_rms): {stats['acc_mag_rms']} (사람마다 체중/보폭에 따라 절대 크기가 다르므로 이 값 자체를 '이 사람의 기준 충격량'으로 삼아 다른 지표를 정규화함)",
+        f" - 지속성 관절 충격량(jerk_p95): {stats['jerk_p95']} / 정규화값(jerk_p95_norm): {stats['jerk_p95_norm']}",
+        f" - 수직 가속 범위(acc_z_range, p5~p95 기준): {stats['acc_z_range']}g (최대={stats['acc_z_max']}g, 최소={stats['acc_z_min']}g)",
+        f" - 수직 충격 변동성(acc_z_std): {stats['acc_z_std']} / 정규화값(acc_z_std_norm): {stats['acc_z_std_norm']}",
+        f" - 전체 충격 에너지(acc_mag_rms, 정규화 기준값): {stats['acc_mag_rms']}",
         "",
         "2. 다리 스윙 및 리듬 (발끌기 vs 좁은 보폭 판단 핵심 지표)",
         f" - 다리 스윙 평균 속도(gyro_mag_mean): {stats['gyro_mag_mean']} deg/s",
-        f" - 스윙 구간 자이로 에너지(swing_gyro_energy): {stats['swing_gyro_energy']} deg/s (단독으로 발끌기를 의미하지 않으며 케이던스/충격 패턴과 함께 해석)",
-        f" - 스윙/스탠스 자이로 비율(swing_stance_gyro_ratio): {stats['swing_stance_gyro_ratio']} (이미 비율이라 체형과 무관하게 비교 가능. 낮으면 스윙 약화 후보이나, 충격 과다 착지나 짧은 보폭에서도 낮게 보일 수 있음)",
-        f" - 수평 마찰 진동(horizontal_jerk_std): {stats['horizontal_jerk_std']} / 정규화값(horizontal_jerk_std_norm, ÷acc_mag_rms): {stats['horizontal_jerk_std_norm']} (수평 방향 흔들림. 발끌기뿐 아니라 강한 착지 충격에서도 커질 수 있으므로 단독 근거로 사용 금지)",
+        f" - 스윙 구간 자이로 에너지(swing_gyro_energy): {stats['swing_gyro_energy']} deg/s",
+        f" - 스윙/스탠스 자이로 비율(swing_stance_gyro_ratio): {stats['swing_stance_gyro_ratio']}",
+        f" - 수평 마찰 진동(horizontal_jerk_std): {stats['horizontal_jerk_std']} / 정규화값(horizontal_jerk_std_norm): {stats['horizontal_jerk_std_norm']}",
         f" - 수직 가속 하위 10%(acc_z_low_p10): {stats['acc_z_low_p10']}g",
         f" - 걸음 수: {stats['step_count']}보",
-        f" - 케이던스(cadence_spm): {stats['cadence_spm']} spm (일반적인 러닝 케이던스는 약 160~180spm. 이보다 뚜렷하게 높을 때만 '빠르게 발을 구른다'고 판단)",
-        f" - 종종걸음 지수(choppy_step_index): {stats['choppy_step_index']} (★핵심: 케이던스가 높고 보폭 간격이 비교적 일정할수록 증가합니다. 15 이상이면 좁은 보폭/종종걸음의 강한 근거입니다)",
+        f" - 케이던스(cadence_spm): {stats['cadence_spm']} spm",
+        f" - 종종걸음 지수(choppy_step_index, ★핵심 지표): {stats['choppy_step_index']}",
         f" - 보폭 간격 변동계수(peak_interval_cv): {stats['peak_interval_cv']}",
         f" - 보폭 규칙성(stride_regularity): {stats['stride_regularity']}",
         "",
@@ -300,16 +366,21 @@ def _build_prompt(stats: dict, ratio: float, dtw: dict, slope: str | None = None
         "",
     ]
 
+    lines += [
+        "[허용 행동 후보 — 반드시 아래에서만 하나 선택]",
+        *_format_action_candidates(),
+        "- action_id는 선택한 tags와 같은 줄에 있는 ID 하나만 넣으세요.",
+        "",
+    ]
+
     if slope in _SLOPE_DESC:
         lines += [
             "[지형 변화]",
             f"- 기압계 기반 고도 추정 결과, 최근 러닝은 {_SLOPE_DESC[slope]}으로 판단됩니다.",
-            f"- 현재 구간은 {_SLOPE_DESC[slope]}입니다. "
-            f"충격/케이던스/페이스 변화가 지형에 의한 자연스러운 결과일 수 있음을 고려하여 조언에 반영해주세요.",
             "",
         ]
 
-    lines.append("위 물리적 수치와 DTW 편차를 종합 분석하여 사용자의 러닝 자세를 과학적으로 교정해주세요.")
+    lines.append("위 수치와 DTW 편차를 바탕으로 코칭해주세요.")
     return "\n".join(lines)
 
 
@@ -317,11 +388,27 @@ _SYSTEM_INSTRUCTION = (
     "당신은 러닝 코칭 전문가입니다. 제공된 센서 통계 수치와 개인 기준선 대비 편차(DTW) 정보를 종합해 "
     "사용자에게 과학적이고 구체적인 교정 동작을 한국어로 조언합니다. "
     "DTW 편차 정보는 절대적 자세 판단이 아니라 '이 사용자가 평소보다 얼마나 흐트러졌는가'를 뜻하므로, "
-    "'자세가 나쁘다'가 아니라 '평소보다 흐트러졌다' 혹은 '평소 패턴에서 이탈했다' 식으로 표현하세요. "
-    "사용자가 러닝 중 짧게 듣고 바로 이해할 수 있는 쉬운 일상어만 사용해, 즉시 실행할 수 있는 동작 위주로 "
-    "2문장 이내로 간결하게 조언하세요. 판정된 태그가 무엇이든, 조언은 항상 실행 가능한 핵심 동작 한 가지에만 "
-    "집중하고 다른 보조 동작을 함께 나열하지 마세요. 특히 발끌기 러닝의 경우 '무릎을 들어 올리는 동작' 외에 "
-    "보폭 조정 같은 다른 동작을 절대 함께 언급하지 마세요. "
+    "'자세가 나쁘다'가 아니라 '기존보다 흐트러졌다' 혹은 '기존 패턴에서 이탈했다' 식으로 표현하세요. "
+    "사용자가 러닝 중 짧게 듣고 바로 이해할 수 있는 쉬운 일상어만 사용하세요. 조언은 반드시 "
+    "[지금 문제를 요약하는 한 문장] + [지금 바로 할 수 있는 행동 한 문장]의 2문장 구조로만 쓰고, "
+    "각 문장은 20~25자 내외로 짧게 작성하세요. 진단 문장은 '무엇이 어떻게 됐는지'만, 행동 문장은 "
+    "'무엇을 하라'는 동작 하나만 담고, 이유 설명이나 불필요한 수식어는 덧붙이지 마세요. 다만 문장을 "
+    "매번 똑같은 틀에 끼워 맞추려 하지 말고, 같은 뜻이라도 표현·어순·단어 선택을 자유롭게 바꿔서 "
+    "다양하게 쓰세요 — 짧게 쓰는 것과 다양하게 쓰는 것은 둘 다 지켜야 할 목표입니다. "
+    "★'평소보다'라는 표현은 절대 쓰지 마세요. 대신 '기존보다', '기존 패턴에서', '그동안의 흐름과 달리' "
+    "등으로 바꿔 쓰거나, 비교 표현 없이 바로 진단만 서술하는 문장도 섞어서 다양하게 표현하세요. "
+    "'확실히'라는 표현도 쓰지 마세요.\n"
+    "★[행동 문장 어미] 감각적/시각적 비유(깃털, 스프링 등)는 쓰지 말고, 아래 어미는 반드시 두 번째 문장"
+    "(행동 문장)에만 적용하세요 — 첫 번째 문장(진단 문장)은 항상 \"~하고 있습니다/합니다\"류의 평서형으로 "
+    "사실만 서술하고, 명령형/의무형 어미를 쓰지 마세요. 행동 문장은 아래 어미 중 상황에 자연스러운 것을 "
+    "자유롭게 골라 끝내세요 — 매번 같은 어미만 반복하지 말고 다양하게 섞어 쓰세요: "
+    "~해보세요 / ~하면 좋습니다 / ~유지하세요 / ~에 집중하세요 / ~를 줄이세요 / ~로 바꾸세요\n"
+    "★행동 문장은 사용자 프롬프트의 [허용 행동 후보]에서 선택한 action_id 하나만 바탕으로 쓰세요. "
+    "후보에 없는 동작을 새로 제안하거나 다른 동작을 섞지 마세요. 선택한 동작의 의미는 유지하되, "
+    "표현·어순·조사만 자연스럽게 바꿔 다양하게 작성하세요. '~보다는', '~하기보다' 식의 대조 언급을 금지합니다.\n"
+    "★같은 태그의 후보 동작은 전부 유효한 선택지입니다. 매번 가장 무난해 보이는 동작 하나로 쏠리지 "
+    "말고, 이번 수치·편차의 구체적 양상에 가장 잘 들어맞는 동작을 후보 전체에서 골고루 고려해서 "
+    "선택하세요.\n"
     "위에 제시된 센서 지표명(jerk, cadence, DTW, 정규화값 등)이나 전문 용어는 "
     "절대 그대로 언급하지 말고, 일반인이 바로 이해할 수 있는 표현으로 풀어서 설명하세요. "
     "말 끝을 흐리지 말고 마침표('.')로 완전히 끝맺음해야 합니다. "
@@ -358,15 +445,15 @@ _SYSTEM_INSTRUCTION = (
     "  - 유사도 타임라인(timeline)이 뚜렷하게 하락/상승 추세를 보이거나 요동친다\n"
     "  - DTW의 shapeDev가 뚜렷하게 크다 (걸음 형태 자체가 평소 대비 달라지고 있음)\n"
     "다른 태그(충격 과다/발끌기/좁은 보폭)로 이미 충분히 설명되는 변화라면 중복으로 추가하지 않아도 됩니다.\n\n"
-    "제공되는 통계는 이미 비정상으로 판정된 구간의 것이므로, tags는 위 1~3단계(충격 과다 러닝/발끌기 러닝/"
-    "좁은 보폭 러닝/페이스 변화 러닝) 중에서만 최소 1개 이상 선택해야 하며, 근거가 애매한 태그를 추측으로 "
-    "추가하지 말고 가장 뚜렷하게 관찰되는 문제(들)만 선택하세요."
+    "제공되는 통계는 이미 비정상으로 판정된 구간의 것이므로, tags에는 위 1~3단계(충격 과다 러닝/발끌기 러닝/"
+    "좁은 보폭 러닝/페이스 변화 러닝) 중 가장 뚜렷한 문제 하나만 선택하세요. 근거가 애매한 태그를 추측으로 "
+    "추가하지 마세요."
 )
 
 # 프롬프트에 [지형 변화] 섹션이 실제로 있을 때만(오르막/내리막) 붙이는 추가 지시문
 _TERRAIN_SYSTEM_ADDENDUM = (
     "★지형 정보: 프롬프트에 [지형 변화] 섹션(오르막/내리막)이 주어지면, 충격 과다나 페이스 변화로 보이는 "
-    "지표가 경사로 인한 자연스러운 변화일 수 있음을 감안해 조언 문구에 짧게 반영하세요."
+    "지표가 경사로 인한 자연스러운 변화일 수 있음을 감안해 조언 문구에 짧게 반영하세요. "
     "다만 지형과 무관한 판정 기준까지 지형 탓으로 돌리지는 마세요."
 )
 
@@ -377,6 +464,12 @@ def _build_system_instruction(slope: str | None) -> str:
     return _SYSTEM_INSTRUCTION
 
 
+# 낮은 온도(예: 0.3)는 태그 판정은 안정적이지만 문구가 매번 거의 동일하게 나오는 문제가 있었다.
+# 태그 판정 절차는 프롬프트에 이미 명시적 임계값/단계로 고정돼 있어 온도를 다소 올려도 잘 안 흔들리므로,
+# 문구 다양성을 우선해 이 값으로 올렸다. 그래도 판정이 너무 튀면 다시 낮추는 걸 고려한다.
+_COACHING_TEMPERATURE = 0.6
+
+
 @traceable(name="call_gemini")
 def _call_gemini(prompt: str, system_instruction: str) -> _CoachingOutput | None:
     client = genai.Client(api_key=settings.GEMINI_API_KEY)
@@ -385,7 +478,7 @@ def _call_gemini(prompt: str, system_instruction: str) -> _CoachingOutput | None
         contents=prompt,
         config=genai.types.GenerateContentConfig(
             system_instruction=system_instruction,
-            temperature=0.3,
+            temperature=_COACHING_TEMPERATURE,
             max_output_tokens=4000,
             response_mime_type="application/json",
             response_schema=_CoachingOutput,
@@ -406,7 +499,7 @@ def _call_openai(prompt: str, system_instruction: str) -> _CoachingOutput | None
             {"role": "system", "content": system_instruction},
             {"role": "user", "content": prompt},
         ],
-        temperature=0.3,
+        temperature=_COACHING_TEMPERATURE,
         max_tokens=4000,
         response_format=_CoachingOutput,
     )
@@ -430,8 +523,15 @@ def _call_llm(prompt: str, system_instruction: str) -> tuple[str, list[str]] | N
             text += "."  # 말 끝이 흐려진 채로 잘려서 오는 경우에 대한 최소 방어
 
         tags = [t for t in parsed.tags if t in ABNORMAL_TAGS]
-        if not tags:
-            logger.warning("LLM이 허용된 태그를 반환하지 않음: raw_tags=%s", parsed.tags)
+        if len(tags) != 1:
+            logger.warning("LLM이 단일 허용 태그를 반환하지 않음: raw_tags=%s", parsed.tags)
+            return None
+        if _ACTION_TO_TAG[parsed.action_id] != tags[0]:
+            logger.warning(
+                "LLM 태그-동작 후보 불일치: tag=%s, action_id=%s",
+                tags[0], parsed.action_id,
+            )
+            return None
 
         return text, tags
     except Exception as e:
