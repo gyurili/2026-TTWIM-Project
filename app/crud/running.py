@@ -1,3 +1,4 @@
+import logging
 from calendar import monthrange
 from datetime import date, timedelta
 from decimal import Decimal
@@ -8,7 +9,28 @@ from sqlalchemy.orm import Session
 
 from app.core.time import epoch_ms_to_kst_naive
 from app.models.running import RunningFeedback, RunningSession, SessionWindow
-from app.schemas.running import RunningSessionCreate
+from app.schemas.running import RunningSessionCreate, SessionWindowCreate
+
+logger = logging.getLogger(__name__)
+
+# 세션 시작~종료 앞뒤 허용 오차. 클라이언트가 이전 녹화 버퍼를 못 지우고 이번 세션 전송에
+# 같이 실어 보내는 경우, 세션 시간대와 무관한 window가 섞여 들어와 타임라인/태그 비율을
+# 오염시키는 걸 막기 위한 안전장치다. 클라이언트 시계 오차 정도는 정상으로 허용한다.
+_WINDOW_TIME_TOLERANCE_MS = 5 * 60_000
+
+
+def _filter_windows_within_session(
+    windows: list[SessionWindowCreate], started_at: int, ended_at: int, user_id: UUID
+) -> list[SessionWindowCreate]:
+    lo, hi = started_at - _WINDOW_TIME_TOLERANCE_MS, ended_at + _WINDOW_TIME_TOLERANCE_MS
+    valid = [w for w in windows if lo <= w.window_start_time and w.window_end_time <= hi]
+    dropped = len(windows) - len(valid)
+    if dropped:
+        logger.warning(
+            "세션 시간 범위를 벗어난 window %d개 제외 (user_id=%s, session=%s~%s)",
+            dropped, user_id, started_at, ended_at,
+        )
+    return valid
 
 
 def create_session(db: Session, user_id: UUID, data: RunningSessionCreate) -> RunningSession:
@@ -21,6 +43,7 @@ def create_session(db: Session, user_id: UUID, data: RunningSessionCreate) -> Ru
         total_distance_m=Decimal(str(round(data.distance_meters, 2))),
         total_duration_sec=data.duration_sec,
     )
+    valid_windows = _filter_windows_within_session(data.windows, data.started_at, data.ended_at, user_id)
     db_session.windows = [
         SessionWindow(
             predictions=w.predictions,
@@ -30,7 +53,7 @@ def create_session(db: Session, user_id: UUID, data: RunningSessionCreate) -> Ru
             window_start_time=w.window_start_time,
             window_end_time=w.window_end_time,
         )
-        for w in data.windows
+        for w in valid_windows
     ]
 
     db.add(db_session)
