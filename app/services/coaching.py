@@ -1,5 +1,6 @@
 import json
 import logging
+import random
 
 import numpy as np
 from scipy.signal import find_peaks
@@ -12,7 +13,19 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-COACHING_TAGS: list[str] = ["안정 러닝", "충격 과다 러닝", "발끌기 러닝", "좁은 보폭 러닝", "페이스 변화 러닝"]
+ABNORMAL_TAGS: list[str] = ["충격 과다 러닝", "발끌기 러닝", "좁은 보폭 러닝", "페이스 변화 러닝"]
+
+STABLE_TAG = "안정 러닝"
+STABLE_COACHING_TEXTS: list[str] = [
+    "러닝 자세가 안정적이에요.",
+    "좋아요. 지금처럼 편안하게 뛰어보세요.",
+    "좋은 자세로 잘 뛰고 있어요.",
+    "착지와 보폭이 안정적이에요.",
+]
+
+
+def get_stable_coaching_text() -> str:
+    return random.choice(STABLE_COACHING_TEXTS)
 
 _DTW_STATUS_DESC = {
     "stable": "평소와 거의 같음(정상)",
@@ -345,11 +358,9 @@ _SYSTEM_INSTRUCTION = (
     "  - 유사도 타임라인(timeline)이 뚜렷하게 하락/상승 추세를 보이거나 요동친다\n"
     "  - DTW의 shapeDev가 뚜렷하게 크다 (걸음 형태 자체가 평소 대비 달라지고 있음)\n"
     "다른 태그(충격 과다/발끌기/좁은 보폭)로 이미 충분히 설명되는 변화라면 중복으로 추가하지 않아도 됩니다.\n\n"
-    "4단계 — 안정 러닝: 1~3단계의 문제 지표 중 어느 것도 뚜렷하게 관찰되지 않고 DTW status가 stable에 가까울 때만 선택합니다. "
-    "'안정 러닝'은 '문제 없음'을 의미하므로 다른 문제 태그와 절대 동시에 선택할 수 없으며, "
-    "1~3단계 중 하나라도 조건을 충족했다면 반드시 제외하세요.\n\n"
-    "최종적으로 tags는 최소 1개 이상 포함해야 하며, 근거가 애매한 태그를 추측으로 추가하지 말고 "
-    "가장 뚜렷하게 관찰되는 문제(들)만 선택하세요."
+    "제공되는 통계는 이미 비정상으로 판정된 구간의 것이므로, tags는 위 1~3단계(충격 과다 러닝/발끌기 러닝/"
+    "좁은 보폭 러닝/페이스 변화 러닝) 중에서만 최소 1개 이상 선택해야 하며, 근거가 애매한 태그를 추측으로 "
+    "추가하지 말고 가장 뚜렷하게 관찰되는 문제(들)만 선택하세요."
 )
 
 # 프롬프트에 [지형 변화] 섹션이 실제로 있을 때만(오르막/내리막) 붙이는 추가 지시문
@@ -418,7 +429,7 @@ def _call_llm(prompt: str, system_instruction: str) -> tuple[str, list[str]] | N
         if text and not text.endswith((".", "!", "?")):
             text += "."  # 말 끝이 흐려진 채로 잘려서 오는 경우에 대한 최소 방어
 
-        tags = [t for t in parsed.tags if t in COACHING_TAGS]
+        tags = [t for t in parsed.tags if t in ABNORMAL_TAGS]
         if not tags:
             logger.warning("LLM이 허용된 태그를 반환하지 않음: raw_tags=%s", parsed.tags)
 
