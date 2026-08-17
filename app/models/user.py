@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Boolean, Column, String, Integer, Date, DateTime, text
+from sqlalchemy import Boolean, Column, String, Integer, Date, DateTime, Float, text
 from sqlalchemy.dialects.postgresql import UUID
 
 from app.core.time import now_kst_naive
@@ -20,4 +20,6 @@ class User(Base):
     is_calibrated = Column(  # DTW 캘리브레이션 완료 여부
         Boolean, nullable=False, default=False, server_default=text("false")
     )
+    tts_voice_id = Column(String(100), nullable=True)  # 클라이언트에서 생성한 TTS 음성 id
+    tts_rate = Column(Float, nullable=True)             # TTS 속도
     created_at = Column(DateTime, default=now_kst_naive)
