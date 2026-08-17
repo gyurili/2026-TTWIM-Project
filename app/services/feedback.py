@@ -237,18 +237,21 @@ _TIMELINE_MERGE_GAP_MS = 60_000
 _TIMELINE_BATCH_SIZE = 5
 
 
-def _batch_majority_tag(tags: list[str]) -> str:
-    """구간 묶음 안에서 가장 많이 나온 태그를 고른다. 동점이면 _dominant_tag와 동일한
-    우선순위(_STABLE_TAG > _ISSUE_TAG_PRIORITY)로 하나를 정해 기준을 통일한다."""
+def _batch_majority_tag(chunk: list[dict]) -> str:
+    """구간 묶음 안에서 가장 많이 나온 태그를 고른다. 동점이면 그 태그들이 묶음 안에서
+    차지한 총 구간 길이(ms)가 더 긴 쪽을 대표로 정한다."""
+    tags = [seg["tag"] for seg in chunk]
     counts = Counter(tags)
     max_count = max(counts.values())
     candidates = {t for t, c in counts.items() if c == max_count}
-    if _STABLE_TAG in candidates:
-        return _STABLE_TAG
-    for t in _ISSUE_TAG_PRIORITY:
-        if t in candidates:
-            return t
-    return next(iter(candidates))
+    if len(candidates) == 1:
+        return next(iter(candidates))
+
+    durations = Counter()
+    for seg in chunk:
+        if seg["tag"] in candidates:
+            durations[seg["tag"]] += seg["end_ms"] - seg["start_ms"]
+    return durations.most_common(1)[0][0]
 
 
 def _merge_adjacent_same_tag(items: list[dict], gap_ms: int) -> list[dict]:
@@ -297,7 +300,7 @@ def _build_timeline(session: RunningSession, windows: list[SessionWindow]) -> li
     for i in range(0, len(fine_segments), _TIMELINE_BATCH_SIZE):
         chunk = fine_segments[i : i + _TIMELINE_BATCH_SIZE]
         batches.append({
-            "tag": _batch_majority_tag([seg["tag"] for seg in chunk]),
+            "tag": _batch_majority_tag(chunk),
             "start_ms": chunk[0]["start_ms"],
             "end_ms": chunk[-1]["end_ms"],
         })
