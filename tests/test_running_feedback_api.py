@@ -36,6 +36,27 @@ def _create_session(client, headers, tags=("안정 러닝",)):
     return res.json()["data"]["sessionId"]
 
 
+def test_batch_majority_tag_prefers_longer_duration_on_tie():
+    """개수가 동점이면 우선순위가 아니라 묶음 안에서 차지한 총 길이가 더 긴 태그를 고른다."""
+    chunk = [
+        {"tag": "안정 러닝", "start_ms": 0, "end_ms": 60_000},
+        {"tag": "충격 과다 러닝", "start_ms": 60_000, "end_ms": 240_000},
+    ]
+
+    assert feedback_service._batch_majority_tag(chunk) == "충격 과다 러닝"
+
+
+def test_batch_majority_tag_returns_sole_winner_without_tie():
+    """개수 자체가 동점이 아니면 길이 계산 없이 최다 득표 태그를 그대로 고른다."""
+    chunk = [
+        {"tag": "발끌기 러닝", "start_ms": 0, "end_ms": 10_000},
+        {"tag": "발끌기 러닝", "start_ms": 10_000, "end_ms": 20_000},
+        {"tag": "충격 과다 러닝", "start_ms": 20_000, "end_ms": 500_000},
+    ]
+
+    assert feedback_service._batch_majority_tag(chunk) == "발끌기 러닝"
+
+
 def test_generate_feedback_with_mocked_llm(client, monkeypatch):
     """실제 LLM을 호출하지 않고, 응답을 mock으로 대체해서 피드백 생성 흐름만 검증한다."""
     _, headers = signup_and_login(client)
