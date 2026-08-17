@@ -25,6 +25,8 @@ class UserOut(BaseModel):
     weight: int
     is_calibrated: bool = False
     total_running_km: float = 0.0
+    tts_voice_id: Optional[str] = None
+    tts_rate: Optional[float] = None
     created_at: Optional[datetime]
 
     class Config:
@@ -37,6 +39,8 @@ class UserUpdate(BaseModel):
     birth_date: Optional[date] = None
     height: Optional[int] = None
     weight: Optional[int] = None
+    tts_voice_id: Optional[str] = None
+    tts_rate: Optional[float] = None
 
 
 class UserLogin(BaseModel):
