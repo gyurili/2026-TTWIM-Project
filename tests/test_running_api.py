@@ -63,6 +63,55 @@ def test_complete_running_requires_token(client):
     assert res.status_code == 401
 
 
+def test_complete_running_filters_windows_outside_session_range(client):
+    """세션 시간대와 무관한(예: 이전 녹화 버퍼) window는 저장에서 제외되어야 한다."""
+    _, headers = signup_and_login(client)
+    started_at_ms = kst_naive_to_epoch_ms(now_kst_naive())
+    payload = _session_payload(started_at_ms=started_at_ms)
+    stale_window_start = started_at_ms - 90 * 60_000  # 세션 시작보다 90분 이전
+    payload["windows"].append(
+        {
+            "predictions": ["normal"],
+            "tags": ["발끌기 러닝"],
+            "feedbackText": None,
+            "dtwContext": None,
+            "windowStartTime": stale_window_start,
+            "windowEndTime": stale_window_start + 10_000,
+        }
+    )
+
+    res = client.post("/running/complete", json=payload, headers=headers)
+
+    assert res.status_code == 200
+    windows = res.json()["data"]["windows"]
+    assert len(windows) == 1
+    assert windows[0]["windowStartTime"] == started_at_ms
+
+
+def test_complete_running_keeps_windows_within_tolerance(client):
+    """클라이언트 시계 오차 수준(5분 이내)의 window는 정상적으로 저장되어야 한다."""
+    _, headers = signup_and_login(client)
+    started_at_ms = kst_naive_to_epoch_ms(now_kst_naive())
+    payload = _session_payload(started_at_ms=started_at_ms)
+    near_window_start = started_at_ms - 4 * 60_000  # 세션 시작보다 4분 이전 (허용 오차 이내)
+    payload["windows"].append(
+        {
+            "predictions": ["normal"],
+            "tags": ["안정 러닝"],
+            "feedbackText": None,
+            "dtwContext": None,
+            "windowStartTime": near_window_start,
+            "windowEndTime": near_window_start + 10_000,
+        }
+    )
+
+    res = client.post("/running/complete", json=payload, headers=headers)
+
+    assert res.status_code == 200
+    windows = res.json()["data"]["windows"]
+    assert len(windows) == 2
+
+
 # ---------------------------------------------------------------------------
 # GET /running/home
 # ---------------------------------------------------------------------------

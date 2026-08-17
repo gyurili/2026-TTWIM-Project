@@ -225,6 +225,13 @@ def _dominant_tag(tags: list[str]) -> str | None:
     return tags[0]
 
 
+# 이 값(ms)보다 window 사이 간격이 벌어지면, 태그가 같아도 별도 구간으로 나눈다.
+# 센서 끊김/앱 백그라운드 전환 등으로 한동안 window가 안 찍히다가 우연히 같은 태그로
+# 재개되면, 시간 체크 없이 태그만 비교할 경우 그 공백 전체가 하나의 구간으로 잘못
+# 합쳐져 타임라인에 비정상적으로 긴 구간이 나타난다.
+_TIMELINE_MERGE_GAP_MS = 60_000
+
+
 def _build_timeline(session: RunningSession, windows: list[SessionWindow]) -> list[dict]:
     """대표 태그가 이어지는 구간끼리 묶어 세션 시작 기준 분 단위 타임라인을 만든다."""
     if not windows:
@@ -245,7 +252,11 @@ def _build_timeline(session: RunningSession, windows: list[SessionWindow]) -> li
         tag = _dominant_tag(w.tags or [])
         if tag is None:
             continue
-        if segments and segments[-1]["tag"] == tag:
+        if (
+            segments
+            and segments[-1]["tag"] == tag
+            and w.window_start_time - segments[-1]["end_ms"] <= _TIMELINE_MERGE_GAP_MS
+        ):
             segments[-1]["end_ms"] = w.window_end_time
         else:
             segments.append({"tag": tag, "start_ms": w.window_start_time, "end_ms": w.window_end_time})
