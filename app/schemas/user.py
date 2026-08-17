@@ -32,6 +32,7 @@ class UserOut(BaseModel):
 
 
 class UserUpdate(BaseModel):
+    nickname: Optional[str] = None
     gender: Optional[Literal["man", "woman"]] = None
     birth_date: Optional[date] = None
     height: Optional[int] = None
