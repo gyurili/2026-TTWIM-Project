@@ -52,7 +52,7 @@ _CHOPPY_BASE_CADENCE_SPM = 160.0        # 이 케이던스 이하는 좁은 보�
 
 # --- 고도(기압계) 기반 지형 판정 관련 상수 ---
 _ALTITUDE_MIN_READINGS = 3              # 이 개수 이상 쌓여야 오르막/내리막 판정을 시도함
-_ALTITUDE_SLOPE_THRESHOLD_M = 2.0       # 처음-마지막 고도 차이가 이 값(m) 이상이어야 경사로 판단
+_ALTITUDE_SLOPE_THRESHOLD_M = 1.0       # 처음-마지막 고도 차이가 이 값(m) 이상이어야 경사로 판단
 
 
 class InsufficientDataError(ValueError):
