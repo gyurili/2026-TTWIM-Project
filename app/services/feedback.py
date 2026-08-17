@@ -231,9 +231,45 @@ def _dominant_tag(tags: list[str]) -> str | None:
 # 합쳐져 타임라인에 비정상적으로 긴 구간이 나타난다.
 _TIMELINE_MERGE_GAP_MS = 60_000
 
+# 태그가 바뀔 때마다 나뉘는 세부 구간이 너무 잘게 쪼개져(예: 1분 안팎 구간이 계속 반복)
+# 타임라인/지도 색상 구간의 가독성이 떨어진다. 이 개수만큼 세부 구간을 묶어 다수결로
+# 대표 태그를 정한 뒤 다시 구간을 만든다.
+_TIMELINE_BATCH_SIZE = 5
+
+
+def _batch_majority_tag(tags: list[str]) -> str:
+    """구간 묶음 안에서 가장 많이 나온 태그를 고른다. 동점이면 _dominant_tag와 동일한
+    우선순위(_STABLE_TAG > _ISSUE_TAG_PRIORITY)로 하나를 정해 기준을 통일한다."""
+    counts = Counter(tags)
+    max_count = max(counts.values())
+    candidates = {t for t, c in counts.items() if c == max_count}
+    if _STABLE_TAG in candidates:
+        return _STABLE_TAG
+    for t in _ISSUE_TAG_PRIORITY:
+        if t in candidates:
+            return t
+    return next(iter(candidates))
+
+
+def _merge_adjacent_same_tag(items: list[dict], gap_ms: int) -> list[dict]:
+    """같은 태그가 이어지고(+ gap_ms 이내로 시간이 붙어 있으면) 하나로 합친다."""
+    merged: list[dict] = []
+    for item in items:
+        if (
+            merged
+            and merged[-1]["tag"] == item["tag"]
+            and item["start_ms"] - merged[-1]["end_ms"] <= gap_ms
+        ):
+            merged[-1]["end_ms"] = item["end_ms"]
+        else:
+            merged.append(dict(item))
+    return merged
+
 
 def _build_timeline(session: RunningSession, windows: list[SessionWindow]) -> list[dict]:
-    """대표 태그가 이어지는 구간끼리 묶어 세션 시작 기준 분 단위 타임라인을 만든다."""
+    """window의 대표 태그가 바뀔 때마다 세부 구간을 나누고, 그 세부 구간을
+    _TIMELINE_BATCH_SIZE개씩 묶어 다수결 대표 태그를 정해 세션 시작 기준 분 단위
+    타임라인을 만든다."""
     if not windows:
         return []
 
@@ -247,19 +283,27 @@ def _build_timeline(session: RunningSession, windows: list[SessionWindow]) -> li
     timeline_base_ms = min(session_start_ms, earliest_window_start_ms)
     max_elapsed_ms = max(session_end_ms, max(w.window_end_time for w in windows)) - timeline_base_ms
 
-    segments: list[dict] = []
-    for w in windows:
-        tag = _dominant_tag(w.tags or [])
-        if tag is None:
-            continue
-        if (
-            segments
-            and segments[-1]["tag"] == tag
-            and w.window_start_time - segments[-1]["end_ms"] <= _TIMELINE_MERGE_GAP_MS
-        ):
-            segments[-1]["end_ms"] = w.window_end_time
-        else:
-            segments.append({"tag": tag, "start_ms": w.window_start_time, "end_ms": w.window_end_time})
+    tagged = [(w, _dominant_tag(w.tags or [])) for w in windows]
+    tagged = [(w, tag) for w, tag in tagged if tag is not None]
+
+    # 1단계: window 단위로 같은 태그가 이어지면 세부 구간으로 묶는다.
+    fine_segments = _merge_adjacent_same_tag(
+        [{"tag": tag, "start_ms": w.window_start_time, "end_ms": w.window_end_time} for w, tag in tagged],
+        _TIMELINE_MERGE_GAP_MS,
+    )
+
+    # 2단계: 세부 구간을 _TIMELINE_BATCH_SIZE개씩 묶어 다수결로 대표 태그를 정한다.
+    batches: list[dict] = []
+    for i in range(0, len(fine_segments), _TIMELINE_BATCH_SIZE):
+        chunk = fine_segments[i : i + _TIMELINE_BATCH_SIZE]
+        batches.append({
+            "tag": _batch_majority_tag([seg["tag"] for seg in chunk]),
+            "start_ms": chunk[0]["start_ms"],
+            "end_ms": chunk[-1]["end_ms"],
+        })
+
+    # 3단계: 배치끼리도 대표 태그가 같고 시간이 이어져 있으면 다시 합친다.
+    segments = _merge_adjacent_same_tag(batches, _TIMELINE_MERGE_GAP_MS)
 
     return [
         {
