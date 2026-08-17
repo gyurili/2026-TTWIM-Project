@@ -45,7 +45,7 @@ jobs:
             --arg desc "$PR_TITLE" \
             --arg actor "$ACTOR" \
             '{
-              content: "**🚀 azas-backend 배포 중입니다...**\n\n* 작업 내용: \($desc)\n* 작업자: \($actor)"
+              content: "🚀 azas-backend 배포 중입니다...\n\n* 작업 내용: \($desc)\n* 작업자: \($actor)"
             }')
           curl --fail -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_WEBHOOK_URL"
 
@@ -106,7 +106,7 @@ jobs:
             --arg desc "$PR_TITLE" \
             --arg actor "$ACTOR" \
             '{
-              content: "**💙 azas-backend 배포 완료되었습니다!**\n\n* 작업 내용: \($desc)\n* 작업자: \($actor)"
+              content: "💙 azas-backend 배포 완료되었습니다!\n\n* 작업 내용: \($desc)\n* 작업자: \($actor)"
             }')
           curl --fail -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_WEBHOOK_URL"
 
@@ -127,6 +127,6 @@ jobs:
             --arg actor "$ACTOR" \
             --arg url "$RUN_URL" \
             '{
-              content: "**❌ azas-backend 배포 실패했습니다**\n\n* 작업 내용: \($desc)\n* 작업자: \($actor)\n* 로그 확인: \($url)"
+              content: "❌ azas-backend 배포 실패했습니다\n\n* 작업 내용: \($desc)\n* 작업자: \($actor)\n* 로그 확인: \($url)"
             }')
           curl --fail -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_WEBHOOK_URL"
