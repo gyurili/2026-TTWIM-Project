@@ -560,4 +560,5 @@ def generate_coaching(
     if result is None:
         return None
     text, tags = result
+    logger.info("중간피드백 생성: tags=%s, slope=%s, text=%s", tags, slope, text)
     return text, tags, slope
