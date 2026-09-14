@@ -267,11 +267,11 @@ def extract_stats(
     else:
         front_back_ratio = 1.0
 
-    low_motion = acc_z_std < _LOW_MOTION_ACC_Z_STD or step_count < _MIN_STEPS_REQUIRED
-    if low_motion:
-        raise InsufficientDataError(
-            f"실질적인 러닝 동작이 감지되지 않음 (acc_z_std={acc_z_std:.4f}, step_count={step_count})"
-        )
+    # low_motion = acc_z_std < _LOW_MOTION_ACC_Z_STD or step_count < _MIN_STEPS_REQUIRED
+    # if low_motion:
+    #     raise InsufficientDataError(
+    #         f"실질적인 러닝 동작이 감지되지 않음 (acc_z_std={acc_z_std:.4f}, step_count={step_count})"
+    #     )
 
     # [정규화 지표] 절대 크기(g, deg/s) 기반 지표는 체중/키/보폭 크기에 따라
     # 사람마다 기준선 자체가 달라 절대 임계값을 두면 일반화가 안 됨.
