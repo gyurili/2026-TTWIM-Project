@@ -110,18 +110,47 @@ def test_predict_mostly_normal_steps_has_no_coaching(client):
     assert data["coaching_tags"] == []
 
 
+def test_classify_prompt_has_no_kb_but_phrase_prompt_has_cause_and_feedback():
+    """1단계(분류) 프롬프트엔 KB를 넣지 않고, 2단계(문구) 프롬프트엔 확정 태그의
+    '원인'·'피드백' 지식만 넣는다."""
+    from app.services.coaching import _classify_prompt, _phrase_prompt
+    from app.services.knowledge import get_kb
+
+    dtw = {
+        "status": "drift", "avgSimilarity": 0.7, "trend": "worsening",
+        "shapeDev": 1.2, "cadenceDev": -2.0, "amplitudeDev": 0.5, "timeline": [0.8, 0.7, 0.6],
+    }
+    stats = coaching_service.extract_stats(_build_impact_step(7), sample_rate_hz=_SR)
+    kb = get_kb()
+
+    classify = _classify_prompt(stats, 0.6, dtw, None)
+    assert "원인 지식" not in classify and "교정 지식" not in classify
+
+    phrase = _phrase_prompt("충격 과다 러닝", stats, 0.6, dtw, None)
+    assert "[원인 지식" in phrase and "[교정 지식" in phrase
+    assert any(d["text"] in phrase for d in kb["충격 과다 러닝"]["원인"])
+    assert any(d["text"] in phrase for d in kb["충격 과다 러닝"]["피드백"])
+    # 다른 태그 지식은 섞이지 않는다
+    assert all(d["text"] not in phrase for d in kb["발끌기 러닝"]["피드백"])
+
+
 def test_predict_mostly_abnormal_steps_triggers_mocked_coaching(client, monkeypatch):
-    """비정상 판정이 과반이면 코칭이 트리거되는데, 실제 LLM은 mock으로 대체해서 검증한다."""
+    """비정상 판정이 과반이면 코칭이 트리거되는데, 2단계 LLM 호출은 각각 mock으로 대체한다."""
     _, headers = signup_and_login(client)
     steps = [_build_impact_step(s) for s in (11, 21, 31)]
 
-    call_count = {"n": 0}
+    calls = {"classify": 0, "phrase": 0}
 
-    def _fake_call_llm(prompt, system_instruction):
-        call_count["n"] += 1
-        return "무릎을 부드럽게 굽혀 충격을 흡수해 보세요.", ["충격 과다 러닝"]
+    def _fake_classify(stats, ratio, dtw, slope):
+        calls["classify"] += 1
+        return "충격 과다 러닝"
 
-    monkeypatch.setattr(coaching_service, "_call_llm", _fake_call_llm)
+    def _fake_phrase(tag, stats, ratio, dtw, slope):
+        calls["phrase"] += 1
+        return "무릎을 부드럽게 굽혀 충격을 흡수해 보세요."
+
+    monkeypatch.setattr(coaching_service, "_classify_tag", _fake_classify)
+    monkeypatch.setattr(coaching_service, "_generate_phrase", _fake_phrase)
 
     res = client.post("/predict", json=_predict_payload(steps), headers=headers)
 
@@ -130,4 +159,4 @@ def test_predict_mostly_abnormal_steps_triggers_mocked_coaching(client, monkeypa
     assert sum(p["prediction_code"] for p in data["predictions"]) >= 2  # 3개 중 과반 abnormal
     assert data["coaching_text"] == "무릎을 부드럽게 굽혀 충격을 흡수해 보세요."
     assert data["coaching_tags"] == ["충격 과다 러닝"]
-    assert call_count["n"] == 1
+    assert calls == {"classify": 1, "phrase": 1}
