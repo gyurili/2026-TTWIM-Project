@@ -39,6 +39,6 @@ class StepPrediction(BaseModel):
 
 class PredictBatchResponse(BaseModel):
     predictions: list[StepPrediction]
-    coaching_text: str = ""
     coaching_tags: list[str] = []
+    coaching_text: str = ""
     terrain: Literal["uphill", "downhill", "flat"] | None = None
