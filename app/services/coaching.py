@@ -936,7 +936,7 @@ def _classify_tag(
     dtw: dict,
     slope: str | None,
 ) -> list[str] | None:
-    """1단계: 센서 지표로 유형을 판정하고 충격 과다 신호를 우선 보정한다."""
+    """1단계: 러닝 유형을 분류하고 신호를 기준으로 보정한다."""
 
     try:
         parsed = _call_structured(
@@ -949,70 +949,84 @@ def _classify_tag(
             _CLASSIFY_TEMPERATURE,
         )
     except Exception as e:
-        logger.error("태그 분류 LLM 호출 실패: %s", e)
+        logger.error("유형 분류 LLM 호출 실패: %s", e)
         return None
 
-    if (
-        parsed is None
-        or not parsed.tags
-        or any(tag not in ABNORMAL_TAGS for tag in parsed.tags)
-    ):
-        logger.warning("태그 분류 결과가 유효하지 않음: %s", parsed)
+    if parsed is None or not parsed.tags:
+        logger.warning("유형 분류 결과가 비어 있음")
         return None
 
-    # 수정 핵심: 충격 신호가 있으면 충격 과다를 대표 태그로 강제한다.
-    if _has_impact_signal(stats):
+    # 발끌기 관련 지표 확인
+    swing_ratio = float(
+        stats.get("swing_stance_gyro_ratio", 1.0)
+    )
+    jerk_norm = float(stats.get("jerk_p95_norm", 0.0))
+    acc_std_norm = float(stats.get("acc_z_std_norm", 0.0))
+
+    dragging_signals = sum([
+        swing_ratio < 0.45,
+        jerk_norm < 0.7,
+        acc_std_norm < 0.5,
+    ])
+    dragging_detected = dragging_signals >= 2
+
+    # 충격 관련 지표는 세 개 중 두 개 이상이 높을 때만 인정
+    impact_detected = _has_impact_signal(stats)
+
+    original_tags = list(parsed.tags)
+
+    if dragging_detected:
+        corrected_tags = ["발끌기 러닝"]
+
+    elif impact_detected:
         corrected_tags = ["충격 과다 러닝"]
 
-        # 좁은 보폭은 충격 과다와 별도로 강한 신호가 있을 때만 유지한다.
-        cadence = float(stats.get("cadence_spm", 0.0))
-        choppy_index = float(stats.get("choppy_step_index", 0.0))
-
-        has_choppy_signal = (
-            cadence >= _CHOPPY_CADENCE_TH
-            or (
-                cadence > _CHOPPY_BASE_CADENCE_SPM
-                and choppy_index >= _CHOPPY_INDEX_TH
-            )
-        )
-
-        if (
-            "좁은 보폭 러닝" in parsed.tags
-            and has_choppy_signal
-        ):
+        if "좁은 보폭 러닝" in original_tags:
             corrected_tags.append("좁은 보폭 러닝")
+
         if (
-            "페이스 변화 러닝" in parsed.tags
+            "페이스 변화 러닝" in original_tags
             and _pace_change_is_notable(stats, dtw)
         ):
             corrected_tags.append("페이스 변화 러닝")
 
+    else:
+        corrected_tags = original_tags
+
+    if corrected_tags != original_tags:
         logger.info(
-            "충격 과다 우선 보정: original=%s, corrected=%s",
-            parsed.tags,
+            "러닝 유형 보정: original=%s, corrected=%s, "
+            "swing_ratio=%.3f, jerk_norm=%.3f, "
+            "acc_std_norm=%.3f, impact_detected=%s",
+            original_tags,
             corrected_tags,
+            swing_ratio,
+            jerk_norm,
+            acc_std_norm,
+            impact_detected,
         )
 
-        parsed.tags = corrected_tags
+    return corrected_tags
 
-    # 페이스 변화 근거가 약하면 보조 태그를 제거한다.
-    if "페이스 변화 러닝" in parsed.tags:
-        physical_tags = [
-            tag
-            for tag in parsed.tags
-            if tag != "페이스 변화 러닝"
-        ]
+    # 수정 핵심: 충격 신호가 있으면 충격 과다를 대표 태그로 강제한다.
+    
+def _has_impact_signal(stats: dict) -> bool:
+    """여러 충격 지표가 함께 높을 때만 충격 과다로 판정한다."""
+    jerk_norm = float(stats.get("jerk_p95_norm", 0.0))
+    acc_std_norm = float(stats.get("acc_z_std_norm", 0.0))
+    impact_score = float(stats.get("impact_score", 0.0))
+    acc_mag_rms = float(stats.get("acc_mag_rms", 0.0))
 
-        if physical_tags and _pace_change_is_notable(stats, dtw):
-            return parsed.tags[:2]
-        if physical_tags:
-            return physical_tags
+    impact_ratio = _safe_div(impact_score, acc_mag_rms)
 
-        if not _pace_change_is_notable(stats, dtw):
-            return None
+    impact_signals = sum([
+        jerk_norm >= 1.0,
+        acc_std_norm >= 0.6,
+        impact_ratio >= 1.8,
+    ])
 
-    return parsed.tags
-
+    # 세 지표 중 적어도 두 개가 높을 때만 True
+    return impact_signals >= 2
 
 @traceable(name="generate_phrase")
 def _generate_phrase(
