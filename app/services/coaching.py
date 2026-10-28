@@ -8,7 +8,7 @@ from scipy.signal import find_peaks
 from google import genai
 from langsmith import traceable
 from openai import OpenAI
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from app.core.config import settings
 from app.services.knowledge import get_kb
@@ -67,7 +67,19 @@ class InsufficientDataError(ValueError):
 # 한 번의 호출로 판정+문구를 같이 하면 KB 텍스트가 판정 규칙과 경쟁해 오분류가 났다(실측).
 class _TagOutput(BaseModel):
     # 구조화 출력 단계에서 4개 유형으로 값 자체를 제한한다 (ABNORMAL_TAGS와 같아야 함).
-    tag: Literal["충격 과다 러닝", "발끌기 러닝", "좁은 보폭 러닝", "페이스 변화 러닝"]
+    # 최대 2개까지 허용: 충격/다리동작 축(1·2단계)에서 하나 + 시간축(3단계, 페이스 변화)에서 하나가
+    # 동시에 뚜렷할 수 있어서다. 1·2단계끼리는 프롬프트의 판정 절차 자체가 상호배타이므로 둘 다
+    # 나오는 경우는 사실상 없다(강제 검증하지는 않음 — LLM 판단에 맡김).
+    tags: list[Literal["충격 과다 러닝", "발끌기 러닝", "좁은 보폭 러닝", "페이스 변화 러닝"]] = Field(
+        min_length=1, max_length=2
+    )
+
+    @field_validator("tags")
+    @classmethod
+    def _no_duplicate_tags(cls, v):
+        if len(set(v)) != len(v):
+            raise ValueError("중복된 태그")
+        return v
 
 
 class _PhraseOutput(BaseModel):
@@ -331,6 +343,10 @@ _SHUFFLE_JERK_NORM_TH = 0.7
 _SHUFFLE_ACCZ_STD_TH = 0.5
 _CHOPPY_CADENCE_TH = 180.0
 _CHOPPY_INDEX_TH = 15.0
+_PACE_RATIO_DEVIATION_TH = 0.2
+_PACE_VARIATION_TH = 0.2
+_PACE_TIMELINE_DEVIATION_TH = 0.15
+_PACE_SHAPE_DEVIATION_TH = 2.0
 
 
 def _threshold_flags(stats: dict) -> list[str]:
@@ -355,19 +371,48 @@ def _threshold_flags(stats: dict) -> list[str]:
     ]
 
 
+def _pace_change_is_notable(stats: dict, dtw: dict) -> bool:
+    """페이스 변화 태그를 허용할 만큼 시간적 변화가 뚜렷한지 판정한다."""
+    evidence_count = 0
+    evidence_count += dtw.get("trend") == "worsening"
+    front_back_ratio = float(stats.get("front_back_ratio", 1.0))
+    if abs(front_back_ratio - 1.0) >= _PACE_RATIO_DEVIATION_TH:
+        evidence_count += 1
+    if float(stats.get("acc_mag_cv", 0.0)) >= _PACE_VARIATION_TH:
+        evidence_count += 1
+    if abs(float(dtw.get("shapeDev", 0.0) or 0.0)) >= _PACE_SHAPE_DEVIATION_TH:
+        evidence_count += 1
+
+    timeline = dtw.get("timeline") or []
+    if len(timeline) >= 2:
+        evidence_count += max(timeline) - min(timeline) >= _PACE_TIMELINE_DEVIATION_TH
+    return evidence_count >= 2
+
+
 def _classify_prompt(stats: dict, ratio: float, dtw: dict, slope: str | None) -> str:
     lines = _sensor_block(stats, ratio, dtw, slope)
     lines += _threshold_flags(stats)
+    pace_allowed = _pace_change_is_notable(stats, dtw)
     lines.append(
-        "위 수치와 DTW 편차를 시스템의 태그 판정 절차에 따라 분석해, 가장 뚜렷한 비정상 유형 "
-        "하나를 tag 로 반환하세요."
+        f"[페이스 변화 태그 허용 여부: {'허용' if pace_allowed else '금지'} — "
+        "금지이면 tags에 '페이스 변화 러닝'을 절대 넣지 마세요.]"
+    )
+    lines.append(
+        "위 수치와 DTW 편차를 시스템의 태그 판정 절차에 따라 분석해, tags 에 1~2개를 반환하세요. "
+        "더 뚜렷한 근거를 가진 유형을 배열의 첫 번째에 두세요."
     )
     return "\n".join(lines)
 
 
 _CLASSIFY_SYSTEM_INSTRUCTION = (
     "당신은 러닝 자세 분석 전문가입니다. 제공된 센서 통계 수치와 개인 기준선 대비 편차(DTW)만 근거로, "
-    "이미 비정상으로 판정된 러닝 구간이 어떤 유형인지 하나만 고르세요. 문구는 만들지 않습니다.\n\n"
+    "이미 비정상으로 판정된 러닝 구간이 어떤 유형인지 고르세요. 문구는 만들지 않습니다.\n\n"
+    "★결과는 1개 또는 2개까지 가능합니다. 아래 1~3단계를 각각 독립적으로 판단한 뒤, '뚜렷하게' "
+    "해당하는 유형만 tags 에 담으세요. 1단계와 2단계는 같은 축(충격·다리 동작)을 보는 절차라 그 "
+    "안에서는 원래도 하나만 남습니다(2단계 자체가 (a)/(b) 중 하나를 고르는 절차입니다). 여기에 "
+    "3단계(페이스 변화)가 별도로 뚜렷하면 추가해 최대 2개가 됩니다. 근거가 애매한 유형을 억지로 "
+    "채우지 말고, 애매하면 가장 뚜렷한 유형 하나만 반환하세요. 2개를 반환할 때는 더 뚜렷한 근거를 "
+    "가진 유형을 배열의 첫 번째에 두세요.\n\n"
     "★태그 판정 절차 (반드시 아래 순서대로 확인하고, 각 조건에 '뚜렷하게' 해당할 때만 그 유형을 고르세요):\n\n"
     "★중요: jerk_p95, acc_z_std, horizontal_jerk_std는 체중·키·보폭 크기에 따라 사람마다 절대 기준선이 다른 "
     "물리량입니다. 반드시 각 값의 정규화 버전(jerk_p95_norm, acc_z_std_norm, horizontal_jerk_std_norm — 모두 "
@@ -388,14 +433,15 @@ _CLASSIFY_SYSTEM_INSTRUCTION = (
     "    - acc_z_std_norm이 0.5 미만이거나, 절대 acc_z_range가 다른 abnormal 구간 대비 눈에 띄게 좁음\n"
     "  jerk_p95_norm·acc_z_std_norm이 오히려 높으면 발끌기가 아니라 충격 과다입니다. "
     "케이던스가 180spm 이상이거나 choppy_step_index가 15 이상이면 발끌기가 아니라 좁은 보폭입니다.\n\n"
-    "3단계 — 페이스 변화 러닝: 아래 중 하나라도 뚜렷하면 선택합니다(모두 만족할 필요 없음):\n"
+    "3단계 — 페이스 변화 러닝: [페이스 변화 태그 허용 여부]가 허용일 때만 선택합니다. "
+    "아래 중 하나 이상이 뚜렷해야 합니다(모두 만족할 필요 없음):\n"
     "  - 전/후반부 에너지 비율(front_back_ratio)이 1.0에서 뚜렷하게 벗어나거나 에너지 변동계수(acc_mag_cv)가 크다\n"
-    "  - DTW의 trend가 worsening 또는 improving이다\n"
+    "  - DTW의 trend가 worsening이다. improving은 회복 추세이므로 페이스 변화 근거로 사용하지 않는다\n"
     "  - 유사도 타임라인(timeline)이 뚜렷하게 하락/상승 추세를 보이거나 요동친다\n"
     "  - DTW의 shapeDev가 뚜렷하게 크다\n"
     "  단, 충격/케이던스 신호가 함께 뚜렷하면 1·2단계 유형을 우선합니다. 페이스 변화는 그 신호가 약하고 "
     "시간적 변화만 두드러질 때 고릅니다.\n\n"
-    "위 1~3단계 유형 중 이번 구간을 가장 잘 설명하는 하나만 tag 로 반환하세요."
+    "위 1~3단계를 독립적으로 판단해 뚜렷한 유형만 tags 에 1~2개 반환하세요."
 )
 
 
@@ -408,41 +454,71 @@ _KB_CAUSE_DOCS = 3
 _KB_FEEDBACK_DOCS = 4
 
 
-def _kb_lines_for(tag: str) -> list[str]:
-    cats = get_kb().get(tag, {})
+def _kb_lines_for(tags: list[str]) -> list[str]:
+    """확정된 태그(1~2개) 각각의 '원인' 지식과, 대표 태그(tags[0])의 '피드백' 지식을 모은다.
+    교정 동작은 1개만 나가야 하므로 피드백 지식은 대표 태그 것만 주입한다."""
+    kb = get_kb()
     out: list[str] = []
-    # 앞쪽 항목에 쏠리는 걸 막으려고 매 호출마다 순서를 섞는다(문구 다양성).
-    causes = random.sample(cats.get("원인", []), min(_KB_CAUSE_DOCS, len(cats.get("원인", []))))
-    acts = random.sample(cats.get("피드백", []), min(_KB_FEEDBACK_DOCS, len(cats.get("피드백", []))))
-    if causes:
-        out.append("[원인 지식 — 진단 문장은 이 범위 안에서 서술]")
-        out += [f" - {d['text']}" for d in causes]
+
+    cause_blocks = []
+    for tag in tags:
+        cats = kb.get(tag, {})
+        # 앞쪽 항목에 쏠리는 걸 막으려고 매 호출마다 순서를 섞는다(문구 다양성).
+        causes = random.sample(cats.get("원인", []), min(_KB_CAUSE_DOCS, len(cats.get("원인", []))))
+        if causes:
+            cause_blocks.append((tag, causes))
+    if cause_blocks:
+        if len(tags) == 2:
+            out.append("[원인 지식 — 진단 문장은 아래 두 유형의 원인을 한 문장 안에 자연스럽게 함께 서술]")
+        else:
+            out.append("[원인 지식 — 진단 문장은 이 범위 안에서 서술]")
+        for tag, causes in cause_blocks:
+            if len(tags) == 2:
+                out.append(f" [{tag}]")
+            out += [f"  - {d['text']}" for d in causes]
         out.append("")
+
+    primary = tags[0]
+    acts = random.sample(
+        kb.get(primary, {}).get("피드백", []),
+        min(_KB_FEEDBACK_DOCS, len(kb.get(primary, {}).get("피드백", []))),
+    )
     if acts:
-        out.append("[교정 지식 — 교정 문장은 이 중 한 가지 동작만 사용]")
+        out.append(f"[교정 지식 — 교정 문장은 이 중 한 가지 동작만 사용 ('{primary}' 기준)]")
         out += [f" - {d['text']}" for d in acts]
         out.append("")
     return out
 
 
-def _phrase_prompt(tag: str, stats: dict, ratio: float, dtw: dict, slope: str | None) -> str:
+def _phrase_prompt(tags: list[str], stats: dict, ratio: float, dtw: dict, slope: str | None) -> str:
     lines = _sensor_block(stats, ratio, dtw, slope)
-    lines += [f"[확정된 비정상 유형] {tag}", ""]
-    lines += _kb_lines_for(tag)
-    lines.append(
-        f"이번 수치·편차에서 '{tag}'와 가장 관련 깊은 지표 하나를 골라 그것을 초점으로, "
-        "진단 문장(diagnosis)과 교정 문장(action)을 각각 만드세요."
-    )
+    lines += [f"[확정된 비정상 유형] {' + '.join(tags)}", ""]
+    lines += _kb_lines_for(tags)
+    if len(tags) == 2:
+        lines.append(
+            f"이번 구간은 '{tags[0]}'와 '{tags[1]}'이 함께 나타납니다. 진단 문장(diagnosis)에는 두 원인을 "
+            f"모두 자연스럽게 담고, 교정 문장(action)은 '{tags[0]}' 기준 동작 하나만 고르세요."
+        )
+    else:
+        lines.append(
+            f"이번 수치·편차에서 '{tags[0]}'와 가장 관련 깊은 지표 하나를 골라 그것을 초점으로, "
+            "진단 문장(diagnosis)과 교정 문장(action)을 각각 만드세요."
+        )
     return "\n".join(lines)
 
 
 _PHRASE_SYSTEM_INSTRUCTION = (
     "당신은 러닝 코칭 전문가입니다. 비정상 유형은 이미 [확정된 비정상 유형]으로 주어집니다 — 유형을 "
-    "바꾸거나 의심하지 말고, 그 유형에 해당하는 현상만 다루세요. 사용자가 러닝 중 짧게 듣고 바로 "
+    "바꾸거나 의심하지 말고, 그 유형에 해당하는 현상만 다루세요. 유형이 2개(예: '충격 과다 러닝 + "
+    "페이스 변화 러닝')로 주어지면 두 현상이 함께 일어나고 있는 것이니 diagnosis 한 문장 안에 두 "
+    "원인을 모두 자연스럽게 담고, action은 그 중 하나(프롬프트가 지정한 대표 유형)의 동작만 고르세요 "
+    "— 두 유형의 교정 동작을 섞지 마세요. 사용자가 러닝 중 짧게 듣고 바로 "
     "이해할 수 있는 쉬운 일상어만 쓰고, jerk·cadence·DTW·정규화값 등 지표명이나 전문 용어는 절대 "
     "그대로 언급하지 말고 풀어서 설명하세요.\n"
     "★출력은 두 문장입니다: diagnosis(지금 무엇이 어떻게 됐는지 한 문장) + action(지금 바로 할 동작 한 문장). "
-    "각 문장은 20~25자 내외로 짧게, 이유 설명이나 불필요한 수식어 없이 쓰세요.\n"
+    "유형이 1개면 각 문장을 20~25자 내외로, 유형이 2개라 diagnosis에 원인 두 가지를 담아야 하면 "
+    "diagnosis는 35자 내외까지 늘어나도 됩니다. action은 유형 개수와 무관하게 20~25자 내외를 유지하세요. "
+    "이유 설명이나 불필요한 수식어 없이 쓰세요.\n"
     "★diagnosis 는 프롬프트 [원인 지식]의 범위 안에서, 이번 수치·편차가 말해 주는 사실을 평서형"
     "(\"~하고 있습니다/합니다\")으로 서술하세요. 명령형·의무형 어미를 쓰지 말고, 근거 없는 원인·수치를 "
     "지어내지 마세요.\n"
@@ -503,14 +579,17 @@ def _call_structured(prompt: str, system_instruction: str, schema: type[BaseMode
 
 @traceable(name="call_gemini")
 def _call_gemini(prompt: str, system_instruction: str, schema: type[BaseModel], temperature: float):
-    client = genai.Client(api_key=settings.GEMINI_API_KEY)
+    client = genai.Client(
+        api_key=settings.GEMINI_API_KEY,
+        http_options=genai.types.HttpOptions(timeout=20_000),
+    )
     response = client.models.generate_content(
         model="gemini-3.1-flash-lite",
         contents=prompt,
         config=genai.types.GenerateContentConfig(
             system_instruction=system_instruction,
             temperature=temperature,
-            max_output_tokens=4000,
+            max_output_tokens=256,
             response_mime_type="application/json",
             response_schema=schema,
         ),
@@ -523,7 +602,7 @@ def _call_gemini(prompt: str, system_instruction: str, schema: type[BaseModel], 
 
 @traceable(name="call_openai")
 def _call_openai(prompt: str, system_instruction: str, schema: type[BaseModel], temperature: float):
-    client = OpenAI(api_key=settings.OPENAI_API_KEY)
+    client = OpenAI(api_key=settings.OPENAI_API_KEY, timeout=20.0)
     response = client.beta.chat.completions.parse(
         model="gpt-4o-mini",
         messages=[
@@ -531,15 +610,15 @@ def _call_openai(prompt: str, system_instruction: str, schema: type[BaseModel], 
             {"role": "user", "content": prompt},
         ],
         temperature=temperature,
-        max_tokens=4000,
+        max_tokens=256,
         response_format=schema,
     )
     return response.choices[0].message.parsed
 
 
 @traceable(name="classify_tag")
-def _classify_tag(stats: dict, ratio: float, dtw: dict, slope: str | None) -> str | None:
-    """1단계: 센서 지표만으로 비정상 유형 하나를 고른다. KB 미주입, 저온도."""
+def _classify_tag(stats: dict, ratio: float, dtw: dict, slope: str | None) -> list[str] | None:
+    """1단계: 센서 지표만으로 비정상 유형을 1~2개 고른다. KB 미주입, 저온도."""
     try:
         parsed = _call_structured(
             _classify_prompt(stats, ratio, dtw, slope),
@@ -550,19 +629,27 @@ def _classify_tag(stats: dict, ratio: float, dtw: dict, slope: str | None) -> st
     except Exception as e:
         logger.error("태그 분류 LLM 호출 실패: %s", e)
         return None
-    if parsed is None or parsed.tag not in ABNORMAL_TAGS:
+    if parsed is None or not parsed.tags or any(t not in ABNORMAL_TAGS for t in parsed.tags):
         logger.warning("태그 분류 결과가 유효하지 않음: %s", parsed)
         return None
-    return parsed.tag
+    if "페이스 변화 러닝" in parsed.tags:
+        physical_tags = [tag for tag in parsed.tags if tag != "페이스 변화 러닝"]
+        if physical_tags:
+            logger.info("물리적 이상 태그 우선으로 페이스 변화 태그 제거: tags=%s", parsed.tags)
+            return physical_tags
+        if not _pace_change_is_notable(stats, dtw):
+            logger.info("페이스 변화 근거 부족으로 태그 제거: stats=%s, dtw=%s", stats, dtw)
+            return None
+    return parsed.tags
 
 
 @traceable(name="generate_phrase")
-def _generate_phrase(tag: str, stats: dict, ratio: float, dtw: dict, slope: str | None) -> str:
-    """2단계: 확정 유형의 KB(원인·피드백)를 근거로 진단·교정 2문장을 만든다. 고온도.
-    실패하면 태그별 고정 문장으로 폴백한다."""
+def _generate_phrase(tags: list[str], stats: dict, ratio: float, dtw: dict, slope: str | None) -> str:
+    """2단계: 확정 유형(1~2개)의 KB(원인·피드백)를 근거로 진단·교정 2문장을 만든다. 고온도.
+    실패하면 대표 태그(tags[0]) 고정 문장으로 폴백한다."""
     try:
         parsed = _call_structured(
-            _phrase_prompt(tag, stats, ratio, dtw, slope),
+            _phrase_prompt(tags, stats, ratio, dtw, slope),
             _build_system_instruction(_PHRASE_SYSTEM_INSTRUCTION, slope),
             _PhraseOutput,
             _PHRASE_TEMPERATURE,
@@ -571,8 +658,8 @@ def _generate_phrase(tag: str, stats: dict, ratio: float, dtw: dict, slope: str 
         logger.error("문구 생성 LLM 호출 실패: %s", e)
         parsed = None
     if parsed is None or not parsed.diagnosis.strip() or not parsed.action.strip():
-        logger.warning("문구 생성 결과가 비어 폴백 사용: tag=%s", tag)
-        return _FALLBACK_SENTENCES.get(tag, "자세가 흐트러지고 있습니다. 리듬을 유지해보세요.")
+        logger.warning("문구 생성 결과가 비어 폴백 사용: tags=%s", tags)
+        return _FALLBACK_SENTENCES.get(tags[0], "자세가 흐트러지고 있습니다. 리듬을 유지해보세요.")
     return f"{_end_period(parsed.diagnosis)} {_end_period(parsed.action)}"
 
 
@@ -592,11 +679,11 @@ def generate_coaching(
 
     slope = classify_slope(altitude_readings) if altitude_readings else None
 
-    tag = _classify_tag(stats, ratio, dtw, slope)  # 1단계
-    if tag is None:
+    tags = _classify_tag(stats, ratio, dtw, slope)  # 1단계
+    if tags is None:
         logger.info("코칭 생성 스킵(태그 분류 실패)")
         return None
 
-    text = _generate_phrase(tag, stats, ratio, dtw, slope)  # 2단계
-    logger.info("중간피드백 생성: tag=%s, slope=%s, text=%s", tag, slope, text)
-    return text, [tag], slope
+    text = _generate_phrase(tags, stats, ratio, dtw, slope)  # 2단계
+    logger.info("중간피드백 생성: tags=%s, slope=%s, text=%s", tags, slope, text)
+    return text, tags, slope
