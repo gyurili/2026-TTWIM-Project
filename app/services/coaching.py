@@ -640,18 +640,19 @@ _CLASSIFY_SYSTEM_INSTRUCTION = (
     "절대값보다 정규화 버전인 jerk_p95_norm, acc_z_std_norm, "
     "horizontal_jerk_std_norm을 우선 참고하세요.\n\n"
 
-    "1단계 — 충격 과다 러닝:\n"
-    "jerk_p95_norm이 0.85 이상이거나 acc_z_std_norm이 "
-    "0.55 이상이면 충격 과다 신호로 판단합니다. "
-    "두 지표 중 하나라도 기준을 넘으면 충격 과다를 우선 검토하세요. "
-    "DTW의 amplitudeDev가 양수이면 추가 근거로 참고하세요.\n\n"
+    
+"1단계 — 충격 과다 러닝:\n"
+"jerk_p95_norm, acc_z_std_norm, impact_score / acc_mag_rms를 "
+"함께 확인하세요. 하나의 지표만 기준을 넘었다는 이유로 "
+"충격 과다를 확정하지 마세요. "
+"여러 충격 지표가 동시에 높을 때 충격 과다를 우선 검토하세요.\n\n"
 
-    "★충격 과다 우선 판정 규칙:\n"
-    "발끌기를 선택하기 전에 충격 과다 신호를 먼저 확인하세요. "
-    "jerk_p95_norm >= 0.85 또는 acc_z_std_norm >= 0.55이면 "
-    "충격 과다 러닝의 근거가 있습니다. 이 경우 스윙/스탠스 "
-    "자이로 비율이 낮다는 이유만으로 발끌기를 우선 선택하지 마세요. "
-    "단, 두 유형이 실제로 함께 존재할 가능성까지 배제하지는 마세요.\n\n"
+"★발끌기와 충격 과다 구분:\n"
+"발끌기는 다리 스윙이 부족하고 발이 지면에 끌리는 패턴입니다. "
+"충격 과다는 착지 순간의 충격과 가속도 변화가 크게 나타나는 패턴입니다. "
+"스윙/스탠스 자이로 비율이 낮고 충격 지표가 충분히 높지 않다면 "
+"발끌기를 우선하세요. "
+"충격 지표 여러 개가 함께 높을 때만 충격 과다를 우선하세요.\n\n"
 
     "2단계 — 발끌기 러닝 vs 좁은 보폭 러닝:\n"
     "(a) 좁은 보폭 러닝은 보폭이 짧고 발을 빠르게 굴리는 패턴입니다. "
@@ -877,7 +878,7 @@ def _call_gemini(
     )
 
     response = client.models.generate_content(
-        model="gemini-3.1-flash-lite",
+        model="gemini-3.8-flash",
         contents=prompt,
         config=genai.types.GenerateContentConfig(
             system_instruction=system_instruction,
@@ -980,6 +981,11 @@ def _classify_tag(
             and has_choppy_signal
         ):
             corrected_tags.append("좁은 보폭 러닝")
+        if (
+            "페이스 변화 러닝" in parsed.tags
+            and _pace_change_is_notable(stats, dtw)
+        ):
+            corrected_tags.append("페이스 변화 러닝")
 
         logger.info(
             "충격 과다 우선 보정: original=%s, corrected=%s",
@@ -989,7 +995,7 @@ def _classify_tag(
 
         parsed.tags = corrected_tags
 
-    # 물리적 이상 태그가 있으면 페이스 변화 태그는 제거한다.
+    # 페이스 변화 근거가 약하면 보조 태그를 제거한다.
     if "페이스 변화 러닝" in parsed.tags:
         physical_tags = [
             tag
@@ -997,6 +1003,8 @@ def _classify_tag(
             if tag != "페이스 변화 러닝"
         ]
 
+        if physical_tags and _pace_change_is_notable(stats, dtw):
+            return parsed.tags[:2]
         if physical_tags:
             return physical_tags
 
