@@ -389,6 +389,14 @@ def _pace_change_is_notable(stats: dict, dtw: dict) -> bool:
     return evidence_count >= 2
 
 
+def _has_impact_signal(stats: dict) -> bool:
+    """충격 과다를 다른 다리 동작 유형보다 우선할 만큼 강한지 확인한다."""
+    return (
+        float(stats.get("jerk_p95_norm", 0.0)) >= _IMPACT_JERK_NORM_TH
+        or float(stats.get("acc_z_std_norm", 0.0)) >= _IMPACT_ACCZ_STD_TH
+    )
+
+
 def _classify_prompt(stats: dict, ratio: float, dtw: dict, slope: str | None) -> str:
     lines = _sensor_block(stats, ratio, dtw, slope)
     lines += _threshold_flags(stats)
@@ -632,6 +640,17 @@ def _classify_tag(stats: dict, ratio: float, dtw: dict, slope: str | None) -> li
     if parsed is None or not parsed.tags or any(t not in ABNORMAL_TAGS for t in parsed.tags):
         logger.warning("태그 분류 결과가 유효하지 않음: %s", parsed)
         return None
+    if _has_impact_signal(stats) and "발끌기 러닝" in parsed.tags:
+        corrected_tags = [
+            "충격 과다 러닝" if tag == "발끌기 러닝" else tag
+            for tag in parsed.tags
+        ]
+        logger.info(
+            "충격 근거가 발끌기 판정보다 우선하여 태그 보정: stats=%s, tags=%s",
+            stats,
+            parsed.tags,
+        )
+        parsed.tags = list(dict.fromkeys(corrected_tags))
     if "페이스 변화 러닝" in parsed.tags:
         physical_tags = [tag for tag in parsed.tags if tag != "페이스 변화 러닝"]
         if physical_tags:
