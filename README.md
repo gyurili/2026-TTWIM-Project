@@ -6,11 +6,13 @@
 > *발등 위 센서로 완성되는 실시간 러닝 자세 코칭, TTWIM!* <br>
 > **AI 기반 실시간 러닝 패턴 분석을 통한 자세 교정 웨어러블 시스템**
 
+<br>
+
 #### 🔗 자료 링크
 * 🎬 [시연 영상 보기 (YouTube)](https://www.youtube.com/watch?v=XviKzuELqQM)
 * 📑 [논문 발표 PPT 보기 (미리캔버스)](https://www.miricanvas.com/v2/ko/design2/v/c27791c3-aa24-4008-b2b0-be188f119d19)
 
-<br><br>
+<br>
 
 ### 📙 프로젝트 소개
 본 프로젝트는 **발등 부착형 IMU 센서**로 러닝 중 착지 충격과 발 움직임 등 생체역학 데이터를 수집하고,
